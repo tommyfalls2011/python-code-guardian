@@ -5,6 +5,7 @@ from .confidence import RepairConfidence
 from .plan import RepairPlan
 from .parser_guard import verify_current_diagnostic
 from .repair_strategies.dictionary import missing_dict_comma
+from .repair_strategies.comma import missing_comma
 from .repair_strategies.punctuation import duplicate_punctuation
 from .repair import Repair
 from .scanner import Diagnostic
@@ -34,7 +35,7 @@ class RepairPlanner:
         )
         self.registry.register(
             "invalid syntax. Perhaps you forgot a comma?",
-            self._missing_comma,
+            missing_comma,
         )
         self.registry.register(
             "unmatched ')'",
