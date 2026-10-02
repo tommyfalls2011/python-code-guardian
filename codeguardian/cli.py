@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from . import __version__
 from .analyzer import analyze_file
 from .audit import RepairAudit
 from .history import RepairHistory
@@ -16,6 +17,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="codeguardian",
         description="Python 3 code checker and repair system.",
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"codeguardian {__version__}",
     )
 
     parser.add_argument(
