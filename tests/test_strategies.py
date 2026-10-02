@@ -2635,3 +2635,71 @@ def test_missing_import_comma_accepts_fresh_span(tmp_path):
     assert plan is not None
     assert plan.repair.replacement == ", "
     assert path.read_text(encoding="utf-8") == source
+
+
+def test_missing_dict_comma_refuses_stale_column(tmp_path):
+    from codeguardian.planner import RepairPlanner
+    from codeguardian.scanner import Diagnostic
+
+    path = tmp_path / "example.py"
+    source = 'value = {"a": foo "b": bar}\n'
+    path.write_text(source, encoding="utf-8")
+
+    diagnostic = Diagnostic(
+        file=path,
+        line=1,
+        column=999,
+        severity="ERROR",
+        message="invalid syntax",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="does not match the current source location",
+    ):
+        RepairPlanner()._missing_dict_comma(diagnostic)
+
+
+def test_missing_dict_comma_refuses_stale_message(tmp_path):
+    from codeguardian.planner import RepairPlanner
+    from codeguardian.scanner import Diagnostic
+
+    path = tmp_path / "example.py"
+    source = 'value = {"a": foo "b": bar}\n'
+    path.write_text(source, encoding="utf-8")
+
+    diagnostic = Diagnostic(
+        file=path,
+        line=1,
+        column=15,
+        severity="ERROR",
+        message="invalid syntax. Perhaps you forgot a comma?",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="does not match the current source location",
+    ):
+        RepairPlanner().plan(diagnostic)
+
+
+def test_missing_dict_comma_refuses_ambiguous_candidate(tmp_path):
+    from codeguardian.planner import RepairPlanner
+    from codeguardian.scanner import Diagnostic
+
+    path = tmp_path / "example.py"
+    source = (
+        'value = {"a": foo "b": bar "c": baz}\n'
+    )
+    path.write_text(source, encoding="utf-8")
+
+    diagnostic = Diagnostic(
+        file=path,
+        line=1,
+        column=15,
+        severity="ERROR",
+        message="invalid syntax",
+    )
+
+    with pytest.raises(ValueError):
+        RepairPlanner().plan(diagnostic)

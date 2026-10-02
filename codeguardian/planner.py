@@ -1294,6 +1294,12 @@ class RepairPlanner:
 
         content = lines[line_index].rstrip("\r\n")
 
+        verify_current_diagnostic(
+            source,
+            diagnostic,
+            check_span=True,
+        )
+
         try:
             tokens = list(
                 tokenize.generate_tokens(
