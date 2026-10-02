@@ -372,3 +372,25 @@ def test_cli_audit_handles_empty_log(
 
     assert exit_code == 0
     assert "No audit records." in output
+
+
+def test_cli_version(capsys):
+    from codeguardian.cli import main
+
+    import sys
+
+    old_argv = sys.argv
+    try:
+        sys.argv = [
+            "codeguardian",
+            "--version",
+        ]
+        try:
+            main()
+        except SystemExit as exc:
+            assert exc.code == 0
+    finally:
+        sys.argv = old_argv
+
+    output = capsys.readouterr().out
+    assert "codeguardian 0.1.0" in output
