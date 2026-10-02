@@ -4,6 +4,7 @@ from .candidate import build_candidate
 from .confidence import RepairConfidence
 from .plan import RepairPlan
 from .parser_guard import verify_current_diagnostic
+from .repair_strategies.dictionary import missing_dict_comma
 from .repair import Repair
 from .scanner import Diagnostic
 from .strategies import RepairStrategyRegistry
