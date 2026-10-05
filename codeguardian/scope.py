@@ -79,9 +79,12 @@ class ScopeAnalyzer(ast.NodeVisitor):
             self.define(alias.asname or alias.name.split(".")[0])
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.module == "__future__":
+            return
+
         for alias in node.names:
             if alias.name != "*":
-                self.define(alias.asname or alias.name)
+                self.define(alias.asname or alias.name, node)
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, ast.Store):
@@ -122,6 +125,20 @@ class ScopeAnalyzer(ast.NodeVisitor):
         for default in node.args.kw_defaults:
             if default is not None:
                 self.visit(default)
+
+        for argument in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        ):
+            if argument.annotation is not None:
+                self.visit(argument.annotation)
+
+        if node.args.vararg and node.args.vararg.annotation is not None:
+            self.visit(node.args.vararg.annotation)
+
+        if node.args.kwarg and node.args.kwarg.annotation is not None:
+            self.visit(node.args.kwarg.annotation)
 
         if node.returns:
             self.visit(node.returns)

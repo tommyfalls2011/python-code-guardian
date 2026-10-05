@@ -400,3 +400,30 @@ def example():
 
     assert any(name == "unused_value" for name, _, _ in unused)
     assert not any(name == "used_value" for name, _, _ in unused)
+
+
+def test_parameter_annotation_counts_as_import_use(tmp_path):
+    path = tmp_path / "parameter_annotation.py"
+    path.write_text(
+        "from pathlib import Path\n"
+        "\n"
+        "def load(path: Path):\n"
+        "    return str(path)\n",
+        encoding="utf-8",
+    )
+    scope = analyze_scope(path)
+    assert "Path" in scope.defined
+    assert "Path" in scope.used
+
+
+def test_future_annotations_not_treated_as_unused_definition(tmp_path):
+    path = tmp_path / "future_annotations.py"
+    path.write_text(
+        "from __future__ import annotations\n"
+        "\n"
+        "def identity(value):\n"
+        "    return value\n",
+        encoding="utf-8",
+    )
+    scope = analyze_scope(path)
+    assert "annotations" not in scope.defined
