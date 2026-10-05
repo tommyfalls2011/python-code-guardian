@@ -998,6 +998,89 @@ def deterministic_unused_definition_edit(
         line=diagnostic.line,
     )
 
+def deterministic_bare_except_edit(
+    source: str,
+    diagnostic: Diagnostic,
+) -> AIEdit | None:
+    """Narrow one literal bare except to Exception."""
+    if diagnostic.message != (
+        "Bare except catches BaseException; catch a specific "
+        "exception type instead."
+    ):
+        return None
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+
+    matches = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ExceptHandler)
+        and node.lineno == diagnostic.line
+        and node.type is None
+    ]
+
+    if len(matches) != 1:
+        return None
+
+    handler = matches[0]
+
+    lines = source.splitlines()
+
+    if not (1 <= handler.lineno <= len(lines)):
+        return None
+
+    original = lines[handler.lineno - 1]
+    stripped = original.lstrip()
+    indentation = original[: len(original) - len(stripped)]
+
+    # Keep this repair intentionally exact. A bare handler's body may
+    # span many lines, but its header must be the literal `except:`.
+    if stripped != "except:":
+        return None
+
+    replacement = f"{indentation}except Exception:"
+
+    probe = (
+        "try:\n"
+        "    pass\n"
+        f"{replacement.lstrip()}\n"
+        "    pass\n"
+    )
+
+    try:
+        parsed = ast.parse(probe)
+    except SyntaxError:
+        return None
+
+    if len(parsed.body) != 1:
+        return None
+
+    try_node = parsed.body[0]
+
+    if (
+        not isinstance(try_node, ast.Try)
+        or len(try_node.handlers) != 1
+    ):
+        return None
+
+    probe_handler = try_node.handlers[0]
+
+    if not (
+        isinstance(probe_handler.type, ast.Name)
+        and probe_handler.type.id == "Exception"
+    ):
+        return None
+
+    return AIEdit(
+        operation="replace",
+        line=handler.lineno,
+        content=replacement,
+    )
+
+
 def _analyze_source(source: str) -> list[Diagnostic]:
     with tempfile.TemporaryDirectory(
         prefix="codeguardian-ai-"

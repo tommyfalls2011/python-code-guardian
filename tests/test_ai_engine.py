@@ -1904,3 +1904,124 @@ def test_deterministic_mutable_default_docstring_semantics(
     assert collect.__doc__ == "Return collected items."
     assert collect() == []
     assert collect() is not collect()
+
+
+def test_deterministic_bare_except_edit(tmp_path):
+    from codeguardian.ai.engine import (
+        deterministic_bare_except_edit,
+    )
+
+    source = (
+        "try:\n"
+        "    work()\n"
+        "except:\n"
+        "    recover()\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Bare except",
+    )
+
+    edit = deterministic_bare_except_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "replace"
+    assert edit.line == 3
+    assert edit.content == "except Exception:"
+
+
+def test_deterministic_bare_except_preserves_indentation(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_bare_except_edit,
+    )
+
+    source = (
+        "def run():\n"
+        "    try:\n"
+        "        work()\n"
+        "    except:\n"
+        "        recover()\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Bare except",
+    )
+
+    edit = deterministic_bare_except_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.content == "    except Exception:"
+
+
+def test_deterministic_bare_except_rejects_specific_handler(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_bare_except_edit,
+    )
+    from codeguardian.scanner import Diagnostic
+
+    source = (
+        "try:\n"
+        "    work()\n"
+        "except ValueError:\n"
+        "    recover()\n"
+    )
+
+    diagnostic = Diagnostic(
+        file=str(tmp_path / "example.py"),
+        line=3,
+        column=1,
+        severity="WARNING",
+        message=(
+            "Bare except catches BaseException; catch a specific "
+            "exception type instead."
+        ),
+    )
+
+    assert deterministic_bare_except_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_deterministic_bare_except_rejects_nonliteral_header(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_bare_except_edit,
+    )
+    from codeguardian.scanner import Diagnostic
+
+    source = (
+        "try:\n"
+        "    work()\n"
+        "except   :  # unusual formatting\n"
+        "    recover()\n"
+    )
+
+    diagnostic = Diagnostic(
+        file=str(tmp_path / "example.py"),
+        line=3,
+        column=1,
+        severity="WARNING",
+        message=(
+            "Bare except catches BaseException; catch a specific "
+            "exception type instead."
+        ),
+    )
+
+    assert deterministic_bare_except_edit(
+        source,
+        diagnostic,
+    ) is None

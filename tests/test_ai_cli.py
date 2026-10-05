@@ -1293,3 +1293,74 @@ def test_cli_safe_if_false_skip_reported_once_across_rescans(
     assert source.count("import os") == 1
     assert source.count("import sys") == 1
     assert "if False:" in source
+
+
+def test_cli_bare_except_uses_deterministic_repair(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def work():\n"
+        "    return 1\n"
+        "\n"
+        "def recover():\n"
+        "    return 2\n"
+        "\n"
+        "try:\n"
+        "    work()\n"
+        "except:\n"
+        "    recover()\n",
+        encoding="utf-8",
+    )
+
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        provider = kwargs.get("provider")
+        assert provider is not None
+        return real_evaluate(*args, **kwargs)
+
+    def forbidden_multi(*args, **kwargs):
+        raise AssertionError(
+            "AI multi-edit must not be called for bare except"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_multi,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+    source = path.read_text(encoding="utf-8")
+
+    assert result == 0
+    assert "except Exception:" in source
+    assert "\nexcept:\n" not in source
+    assert "[REPAIRED]" in output
+    assert "[AI REPAIRED]" not in output
+    assert "Deterministic repairs applied: 1" in output
+    assert "AI repairs applied: 0" in output
+    assert "Total repairs applied: 1" in output

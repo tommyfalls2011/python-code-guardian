@@ -8,6 +8,7 @@ from .analyzer import analyze_file
 from .ai.engine import (
     apply_evaluated_ai_edit,
     deterministic_assert_tuple_edit,
+    deterministic_bare_except_edit,
     deterministic_duplicate_import_edit,
     deterministic_mutable_default_edits,
     deterministic_unreachable_code_edit,
@@ -380,6 +381,14 @@ def main() -> int:
                     if deterministic_edit is None:
                         deterministic_edit = (
                             deterministic_assert_tuple_edit(
+                                source,
+                                diagnostic,
+                            )
+                        )
+
+                    if deterministic_edit is None:
+                        deterministic_edit = (
+                            deterministic_bare_except_edit(
                                 source,
                                 diagnostic,
                             )
