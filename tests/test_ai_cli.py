@@ -290,7 +290,10 @@ def test_cli_ai_repair_routes_mutable_default_to_multi_edit(
     assert result == 0
     assert called["multi"] is True
     assert called["single"] is False
-    assert "[AI REPAIRED]" in output
+    assert "[REPAIRED]" in output
+    assert "[AI REPAIRED]" not in output
+    assert "Deterministic repairs applied: 1" in output
+    assert "AI repairs applied: 0" in output
     assert "Operation: replace" in output
     assert "Operation: insert_after" in output
     assert target.read_text(
@@ -795,7 +798,7 @@ def test_cli_duplicate_import_uses_deterministic_repair(
     assert result == 0
     assert len(calls) == 1
     assert calls[0] is not None
-    assert "AI repairs applied: 1" in output
+    assert "Deterministic repairs applied: 1" in output
 
     assert target.read_text(
         encoding="utf-8"
@@ -867,7 +870,7 @@ def test_cli_unused_literal_uses_deterministic_repair(
     )
 
     output = capsys.readouterr().out
-    assert "AI repairs applied: 1" in output
+    assert "Deterministic repairs applied: 1" in output
 
 
 def test_cli_unused_literals_rescan_and_share_repair_budget(
@@ -923,7 +926,7 @@ def test_cli_unused_literals_rescan_and_share_repair_budget(
     assert "second_unused" not in source
 
     output = capsys.readouterr().out
-    assert "AI repairs applied: 2" in output
+    assert "Deterministic repairs applied: 2" in output
 
 
 def test_cli_unused_literal_respects_max_repairs(
@@ -970,7 +973,7 @@ def test_cli_unused_literal_respects_max_repairs(
     assert remaining == 1
 
     output = capsys.readouterr().out
-    assert "AI repairs applied: 1" in output
+    assert "Deterministic repairs applied: 1" in output
     assert "Unused definition:" in output
 
 
@@ -1091,4 +1094,4 @@ def test_cli_unreachable_code_uses_deterministic_repair(
     assert "value = 2" not in source
 
     output = capsys.readouterr().out
-    assert "AI repairs applied: 1" in output
+    assert "Deterministic repairs applied: 1" in output

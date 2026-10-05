@@ -266,11 +266,17 @@ def main() -> int:
         print()
 
     elif args.ai_repair and report.total_count:
-        print("AI REPAIR MODE:")
-        print(f"Model: {args.ai_model}")
+        print("GUARDED REPAIR MODE:")
+        print(
+            "Deterministic repairs first; "
+            "AI fallback when needed."
+        )
+        print(f"AI fallback model: {args.ai_model}")
         print()
 
         repairs_applied = 0
+        deterministic_repairs_applied = 0
+        ai_repairs_applied = 0
         rejected_attempts = set()
 
         while (
@@ -310,6 +316,8 @@ def main() -> int:
                 if rejection_key in rejected_attempts:
                     continue
 
+                repair_source = "ai"
+
                 try:
                     deterministic_edit = (
                         deterministic_duplicate_import_edit(
@@ -343,6 +351,7 @@ def main() -> int:
                         )
 
                     if deterministic_edit is not None:
+                        repair_source = "deterministic"
                         evaluation = evaluate_ai_edit(
                             source=source,
                             diagnostic=diagnostic,
@@ -362,6 +371,7 @@ def main() -> int:
                         )
 
                         if deterministic_edits is not None:
+                            repair_source = "deterministic"
                             evaluation = evaluate_ai_edits(
                                 source=source,
                                 diagnostic=diagnostic,
@@ -430,8 +440,14 @@ def main() -> int:
                     )
                     continue
 
+                repair_label = (
+                    "REPAIRED"
+                    if repair_source == "deterministic"
+                    else "AI REPAIRED"
+                )
+
                 print(
-                    f"[AI REPAIRED] {diagnostic.file}:"
+                    f"[{repair_label}] {diagnostic.file}:"
                     f"{diagnostic.line}:"
                     f"{diagnostic.column}"
                 )
@@ -459,6 +475,12 @@ def main() -> int:
                 print()
 
                 repairs_applied += 1
+
+                if repair_source == "deterministic":
+                    deterministic_repairs_applied += 1
+                else:
+                    ai_repairs_applied += 1
+
                 applied_this_pass = True
 
                 diagnostics = []
@@ -489,14 +511,13 @@ def main() -> int:
             if not applied_this_pass:
                 break
 
-        if repairs_applied == 0:
-            print("AI repairs applied: 0")
-            print()
-        else:
-            print(
-                f"AI repairs applied: {repairs_applied}"
-            )
-            print()
+        print(
+            "Deterministic repairs applied: "
+            f"{deterministic_repairs_applied}"
+        )
+        print(f"AI repairs applied: {ai_repairs_applied}")
+        print(f"Total repairs applied: {repairs_applied}")
+        print()
 
     elif args.repair and report.total_count:
         pipeline = GuardianPipeline(
