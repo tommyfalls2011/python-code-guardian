@@ -17,8 +17,6 @@ def unclosed_delimiter(diagnostic: Diagnostic) -> RepairPlan:
     }
 
     stack: list[str] = []
-    final_line_comment_column: int | None = None
-
     import tokenize
     from io import StringIO
 
@@ -27,8 +25,6 @@ def unclosed_delimiter(diagnostic: Diagnostic) -> RepairPlan:
     try:
         for token in tokens:
             if token.type == tokenize.COMMENT:
-                if token.start[0] == source.count("\n") + 1:
-                    final_line_comment_column = token.start[1] + 1
                 continue
 
             if token.type != tokenize.OP:
@@ -102,9 +98,6 @@ def unclosed_delimiter(diagnostic: Diagnostic) -> RepairPlan:
     # final line independently so an incomplete source TokenError
     # cannot prevent us from finding that comment.
     try:
-        import tokenize
-        from io import StringIO
-
         line_tokens = tokenize.generate_tokens(
             StringIO(last_content + "\n").readline
         )

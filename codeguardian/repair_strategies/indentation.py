@@ -246,11 +246,9 @@ def unexpected_indent(diagnostic: Diagnostic) -> RepairPlan:
     # Safely remove one indentation level. Four spaces is the
     # conventional Python indentation used by this project.
     if line.startswith("    "):
-        replacement = line[4:]
         start_column = 1
         end_column = 5
     elif line.startswith("\t"):
-        replacement = line[1:]
         start_column = 1
         end_column = 2
     else:
