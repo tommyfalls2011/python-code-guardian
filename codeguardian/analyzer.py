@@ -31,6 +31,7 @@ class PythonAnalyzer(ast.NodeVisitor):
         ]
         self.definition_scopes: list[set[str]] = [set()]
         self.callable_scopes: list[set[str]] = [set()]
+        self.property_scopes: list[set[str]] = [set()]
         self.loop_depth = 0
 
     def diagnostic(
@@ -131,9 +132,11 @@ class PythonAnalyzer(ast.NodeVisitor):
         self.import_scopes.append(set())
         self.import_identity_scopes.append(set())
         self.callable_scopes.append(set())
+        self.property_scopes.append(set())
         try:
             self.generic_visit(node)
         finally:
+            self.property_scopes.pop()
             self.callable_scopes.pop()
             self.import_identity_scopes.pop()
             self.import_scopes.pop()
@@ -202,11 +205,25 @@ class PythonAnalyzer(ast.NodeVisitor):
                     "the mutable value inside the function.",
                 )
 
+    def _is_property_definition(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> bool:
+        """Return True for a direct @property definition."""
+        return any(
+            isinstance(decorator, ast.Name)
+            and decorator.id == "property"
+            for decorator in node.decorator_list
+        )
+
     def _is_property_accessor(
         self,
         node: ast.FunctionDef | ast.AsyncFunctionDef,
     ) -> bool:
-        """Return True for @name.setter and @name.deleter accessors."""
+        """Return True for an accessor of a known property."""
+        if node.name not in self.property_scopes[-1]:
+            return False
+
         for decorator in node.decorator_list:
             if (
                 isinstance(decorator, ast.Attribute)
@@ -220,6 +237,7 @@ class PythonAnalyzer(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         is_property_accessor = self._is_property_accessor(node)
+        is_property_definition = self._is_property_definition(node)
 
         if (
             node.name in self.callable_scopes[-1]
@@ -243,15 +261,21 @@ class PythonAnalyzer(ast.NodeVisitor):
 
         self.definition_scopes[-1].add(node.name)
         self.callable_scopes[-1].add(node.name)
+
+        if is_property_definition:
+            self.property_scopes[-1].add(node.name)
+
         self._check_mutable_defaults(node)
         self._check_unreachable_statements(node.body)
         self.definition_scopes.append(set())
         self.import_scopes.append(set())
         self.import_identity_scopes.append(set())
         self.callable_scopes.append(set())
+        self.property_scopes.append(set())
         try:
             self.generic_visit(node)
         finally:
+            self.property_scopes.pop()
             self.callable_scopes.pop()
             self.import_identity_scopes.pop()
             self.import_scopes.pop()

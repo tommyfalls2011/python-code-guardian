@@ -1274,3 +1274,45 @@ def test_relative_from_import_levels_have_distinct_identity(tmp_path):
         diagnostic.message == "Duplicate import: 'thing'"
         for diagnostic in diagnostics
     )
+
+
+def test_fake_property_setter_is_still_duplicate_definition(tmp_path):
+    path = tmp_path / "fake_property_setter.py"
+    path.write_text(
+        "class Example:\n"
+        "    def value(self):\n"
+        "        return 1\n"
+        "\n"
+        "    @value.setter\n"
+        "    def value(self, new_value):\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert any(
+        d.message == "Name 'value' is defined more than once."
+        for d in result.diagnostics
+    )
+
+
+def test_fake_property_deleter_is_still_duplicate_definition(tmp_path):
+    path = tmp_path / "fake_property_deleter.py"
+    path.write_text(
+        "class Example:\n"
+        "    def value(self):\n"
+        "        return 1\n"
+        "\n"
+        "    @value.deleter\n"
+        "    def value(self):\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert any(
+        d.message == "Name 'value' is defined more than once."
+        for d in result.diagnostics
+    )
