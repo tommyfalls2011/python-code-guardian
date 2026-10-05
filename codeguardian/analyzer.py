@@ -295,7 +295,28 @@ class PythonAnalyzer(ast.NodeVisitor):
 
         self.generic_visit(node)
 
+    def visit_Assert(self, node: ast.Assert) -> None:
+        if isinstance(node.test, ast.Tuple) and node.test.elts:
+            self.diagnostic(
+                node,
+                "WARNING",
+                "Assert condition is a non-empty tuple and is always truthy.",
+            )
+
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id in {"eval", "exec"}
+        ):
+            self.diagnostic(
+                node,
+                "WARNING",
+                f"Use of {node.func.id}() can execute arbitrary code; "
+                "avoid it unless the input is fully trusted.",
+            )
+
         if (
             self.loop_depth > 0
             and isinstance(node.func, ast.Attribute)
@@ -311,6 +332,17 @@ class PythonAnalyzer(ast.NodeVisitor):
                 "INFO",
                 "Constant re.compile() inside a loop; "
                 "consider compiling the pattern once outside the loop.",
+            )
+
+        self.generic_visit(node)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.type is None:
+            self.diagnostic(
+                node,
+                "WARNING",
+                "Bare except catches BaseException; catch a specific "
+                "exception type instead.",
             )
 
         self.generic_visit(node)

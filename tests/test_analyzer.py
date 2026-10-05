@@ -774,3 +774,47 @@ def test_does_not_flag_immutable_defaults(tmp_path):
     path.write_text("def collect(items=None, values=(1, 2), name=\"ok\"):\n    return items, values, name\n", encoding="utf-8")
     result = analyze_file(path)
     assert not any("Mutable default argument" in d.message for d in result.diagnostics)
+
+
+def test_detects_bare_except(tmp_path):
+    path = tmp_path / "bare_except.py"
+    path.write_text("try:\n    work()\nexcept:\n    recover()\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Bare except" in d.message for d in result.diagnostics)
+
+
+def test_does_not_flag_specific_except(tmp_path):
+    path = tmp_path / "specific_except.py"
+    path.write_text("try:\n    work()\nexcept ValueError:\n    recover()\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert not any("Bare except" in d.message for d in result.diagnostics)
+
+
+def test_detects_eval_and_exec(tmp_path):
+    path = tmp_path / "dynamic_execution.py"
+    path.write_text("def run(source):\n    eval(source)\n    exec(source)\n", encoding="utf-8")
+    result = analyze_file(path)
+    messages = [d.message for d in result.diagnostics]
+    assert any("eval()" in message for message in messages)
+    assert any("exec()" in message for message in messages)
+
+
+def test_does_not_flag_methods_named_eval_or_exec(tmp_path):
+    path = tmp_path / "method_names.py"
+    path.write_text("def run(engine, source):\n    engine.eval(source)\n    engine.exec(source)\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert not any("arbitrary code" in d.message for d in result.diagnostics)
+
+
+def test_detects_assert_tuple(tmp_path):
+    path = tmp_path / "assert_tuple.py"
+    path.write_text("def check(value):\n    assert (value > 0, \"must be positive\")\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("always truthy" in d.message for d in result.diagnostics)
+
+
+def test_does_not_flag_normal_assert(tmp_path):
+    path = tmp_path / "normal_assert.py"
+    path.write_text("def check(value):\n    assert value > 0, \"must be positive\"\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert not any("always truthy" in d.message for d in result.diagnostics)
