@@ -21,6 +21,7 @@ class Scope:
     definition_locations: dict[str, tuple[int, int]] = field(default_factory=dict)
     globals: set[str] = field(default_factory=set)
     nonlocals: set[str] = field(default_factory=set)
+    parameters: set[str] = field(default_factory=set)
 
     def add_child(self, child: Scope) -> None:
         self.children.append(child)
@@ -100,13 +101,16 @@ class ScopeAnalyzer(ast.NodeVisitor):
             *node.args,
             *node.kwonlyargs,
         ):
-            self.define(argument.arg)
+            self.define(argument.arg, argument)
+            self.current.parameters.add(argument.arg)
 
         if node.vararg:
-            self.define(node.vararg.arg)
+            self.define(node.vararg.arg, node.vararg)
+            self.current.parameters.add(node.vararg.arg)
 
         if node.kwarg:
-            self.define(node.kwarg.arg)
+            self.define(node.kwarg.arg, node.kwarg)
+            self.current.parameters.add(node.kwarg.arg)
 
     def _visit_function_defaults(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         for decorator in node.decorator_list:
@@ -382,12 +386,15 @@ def find_unused_definitions(
     def walk(current: Scope) -> None:
         # Module-level definitions are public API candidates and may be
         # referenced by imports from other modules, so do not flag them here.
-        if current.kind != "module":
+        if current.kind in {"function", "lambda"}:
             for name in current.defined:
                 if name in ignored:
                     continue
 
                 if name.startswith("_"):
+                    continue
+
+                if name in current.parameters:
                     continue
 
                 if name not in current.used:
