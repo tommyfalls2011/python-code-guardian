@@ -584,3 +584,27 @@ def test_plain_repair_shared_dispatcher_mutable_default(tmp_path):
     assert "if items is None:" in repaired
     assert "items = []" in repaired
     compile(repaired, str(path), "exec")
+
+def test_pipeline_strategy_refusal_does_not_abort_later_repairs(tmp_path):
+    from codeguardian.pipeline import GuardianPipeline
+
+    refused = tmp_path / "a_refused.py"
+    repairable = tmp_path / "b_repairable.py"
+
+    refused.write_text(
+        "  value = 1\n",
+        encoding="utf-8",
+    )
+    repairable.write_text(
+        "try:\n"
+        "    value = 1\n"
+        "except:\n"
+        "    value = 2\n",
+        encoding="utf-8",
+    )
+
+    result = GuardianPipeline().repair(tmp_path)
+
+    assert "  value = 1" in refused.read_text(encoding="utf-8")
+    assert "except Exception:" in repairable.read_text(encoding="utf-8")
+    assert result.repairs_applied >= 1

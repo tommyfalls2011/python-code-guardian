@@ -156,7 +156,13 @@ class GuardianPipeline:
             if self.policy is RepairPolicy.OFF:
                 break
 
-            plan = self.planner.plan(diagnostic)
+            try:
+                plan = self.planner.plan(diagnostic)
+            except ValueError:
+                # A repair strategy may deliberately refuse an ambiguous or
+                # unsafe diagnostic.  Isolate that refusal so one diagnostic
+                # cannot abort repairs for the rest of the target.
+                continue
 
             if plan is None:
                 source = diagnostic.file.read_text(
