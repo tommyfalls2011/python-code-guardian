@@ -1859,3 +1859,69 @@ def test_safe_policy_identical_duplicate_still_repairs_before_skip(
     assert "[SKIPPED SAFE]" not in output
     assert "Deterministic repairs applied: 1" in output
     assert "AI repairs applied: 0" in output
+
+
+def test_safe_ai_skip_reason_blocks_unused_import():
+    from codeguardian.cli import _safe_ai_skip_reason
+
+    reason = _safe_ai_skip_reason(
+        "Unused import: 'tornado'"
+    )
+
+    assert reason is not None
+    assert "import-time side effects" in reason
+
+
+def test_cli_safe_mode_never_sends_unused_import_to_ai(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "side_effect_import.py"
+    original = (
+        "import fractions\n"
+        "\n"
+        "value = 1\n"
+    )
+    path.write_text(original, encoding="utf-8")
+
+    def forbidden_ai(*args, **kwargs):
+        raise AssertionError(
+            "safe mode must not send unused imports to AI"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "1",
+        ],
+    )
+
+    result = cli.main()
+
+    assert result == 0
+    assert path.read_text(encoding="utf-8") == original
+
+    output = capsys.readouterr().out
+    assert "[SKIPPED SAFE]" in output
+    assert "import-time side effects" in output
+    assert "AI repairs applied: 0" in output
+    assert "Unused import: 'fractions'" in output

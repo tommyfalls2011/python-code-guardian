@@ -71,6 +71,12 @@ def _safe_ai_skip_reason(message: str) -> str | None:
             "imported names are intentionally exposed."
         )
 
+    if message.startswith("Unused import: '"):
+        return (
+            "Removing an apparently unused import could remove "
+            "intentional import-time side effects or registration."
+        )
+
     if (
         message.startswith("Use of eval()")
         or message.startswith("Use of exec()")
