@@ -26,7 +26,7 @@ class PythonAnalyzer(ast.NodeVisitor):
         self.diagnostics: list[Diagnostic] = []
         self.imports: dict[str, int] = {}
         self.import_scopes: list[set[str]] = [set()]
-        self.import_identity_scopes: list[set[tuple[str, str | None]]] = [
+        self.import_identity_scopes: list[set[tuple[str, ...]]] = [
             set()
         ]
         self.definition_scopes: list[set[str]] = [set()]
@@ -52,7 +52,11 @@ class PythonAnalyzer(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             name = alias.asname or alias.name.split(".")[0]
-            identity = (alias.name, alias.asname)
+            identity = (
+                "import",
+                alias.name,
+                alias.asname or "",
+            )
 
             if identity in self.import_identity_scopes[-1]:
                 self.diagnostic(
@@ -84,13 +88,22 @@ class PythonAnalyzer(ast.NodeVisitor):
                 continue
 
             name = alias.asname or alias.name
+            identity = (
+                "from",
+                str(node.level),
+                node.module or "",
+                alias.name,
+                alias.asname or "",
+            )
 
-            if name in self.import_scopes[-1]:
+            if identity in self.import_identity_scopes[-1]:
                 self.diagnostic(
                     node,
                     "WARNING",
                     f"Duplicate import: '{name}'",
                 )
+
+            self.import_identity_scopes[-1].add(identity)
             self.import_scopes[-1].add(name)
             self.imports.setdefault(name, node.lineno)
 

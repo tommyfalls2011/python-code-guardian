@@ -1025,13 +1025,9 @@ def test_same_alias_different_modules_are_not_duplicate_imports(
     )
 
 
-def test_duplicate_from_import_repair_rejects_same_binding_different_modules(
+def test_same_binding_different_from_modules_is_not_duplicate(
     tmp_path,
 ):
-    from codeguardian.ai.engine import (
-        deterministic_duplicate_import_edit,
-    )
-
     source = (
         "from pathlib import Path as value\n"
         "from os import path as value\n"
@@ -1039,17 +1035,16 @@ def test_duplicate_from_import_repair_rejects_same_binding_different_modules(
         "print(value)\n"
     )
 
-    diagnostic = diagnostic_for(
-        tmp_path,
-        source,
-        "Duplicate import: 'value'",
+    path = tmp_path / "sample.py"
+    path.write_text(source, encoding="utf-8")
+
+    diagnostics = analyze_file(path).diagnostics
+
+    assert not any(
+        item.message == "Duplicate import: 'value'"
+        for item in diagnostics
     )
 
-    assert diagnostic.line == 2
-    assert deterministic_duplicate_import_edit(
-        source,
-        diagnostic,
-    ) is None
 
 
 def test_duplicate_import_repair_accepts_identical_alias_sibling(

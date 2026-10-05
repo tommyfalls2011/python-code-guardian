@@ -1210,3 +1210,67 @@ def test_inline_noqa_does_not_disable_file_unused_import_analysis(
         d.message == "Unused import: 'fractions'"
         for d in result.diagnostics
     )
+
+
+def test_same_name_from_different_modules_is_not_duplicate(tmp_path):
+    path = tmp_path / "example.py"
+    path.write_text(
+        "from alpha import thing\n"
+        "from beta import thing\n",
+        encoding="utf-8",
+    )
+
+    diagnostics = analyze_file(path).diagnostics
+
+    assert not any(
+        diagnostic.message == "Duplicate import: 'thing'"
+        for diagnostic in diagnostics
+    )
+
+
+def test_exact_repeated_from_import_is_duplicate(tmp_path):
+    path = tmp_path / "example.py"
+    path.write_text(
+        "from alpha import thing\n"
+        "from alpha import thing\n",
+        encoding="utf-8",
+    )
+
+    diagnostics = analyze_file(path).diagnostics
+
+    assert any(
+        diagnostic.message == "Duplicate import: 'thing'"
+        for diagnostic in diagnostics
+    )
+
+
+def test_same_alias_from_different_modules_is_not_duplicate(tmp_path):
+    path = tmp_path / "example.py"
+    path.write_text(
+        "from alpha import first as value\n"
+        "from beta import second as value\n",
+        encoding="utf-8",
+    )
+
+    diagnostics = analyze_file(path).diagnostics
+
+    assert not any(
+        diagnostic.message == "Duplicate import: 'value'"
+        for diagnostic in diagnostics
+    )
+
+
+def test_relative_from_import_levels_have_distinct_identity(tmp_path):
+    path = tmp_path / "example.py"
+    path.write_text(
+        "from .alpha import thing\n"
+        "from ..alpha import thing\n",
+        encoding="utf-8",
+    )
+
+    diagnostics = analyze_file(path).diagnostics
+
+    assert not any(
+        diagnostic.message == "Duplicate import: 'thing'"
+        for diagnostic in diagnostics
+    )
