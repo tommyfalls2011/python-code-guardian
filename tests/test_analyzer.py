@@ -739,3 +739,38 @@ def test_does_not_flag_dynamic_membership_in_loop(tmp_path):
     path.write_text("def process(values, allowed):\n    for value in values:\n        if value in allowed:\n            print(value)\n", encoding="utf-8")
     result = analyze_file(path)
     assert not any("Constant list/tuple membership test inside a loop" in d.message for d in result.diagnostics)
+
+
+def test_detects_mutable_list_default(tmp_path):
+    path = tmp_path / "mutable_list.py"
+    path.write_text("def collect(items=[]):\n    return items\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Mutable default argument" in d.message for d in result.diagnostics)
+
+
+def test_detects_mutable_dict_default(tmp_path):
+    path = tmp_path / "mutable_dict.py"
+    path.write_text("def collect(options={}):\n    return options\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Mutable default argument" in d.message for d in result.diagnostics)
+
+
+def test_detects_mutable_set_default(tmp_path):
+    path = tmp_path / "mutable_set.py"
+    path.write_text("def collect(values=set()):\n    return values\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Mutable default argument" in d.message for d in result.diagnostics)
+
+
+def test_detects_mutable_keyword_only_default(tmp_path):
+    path = tmp_path / "mutable_keyword.py"
+    path.write_text("def collect(*, items=[]):\n    return items\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Mutable default argument" in d.message for d in result.diagnostics)
+
+
+def test_does_not_flag_immutable_defaults(tmp_path):
+    path = tmp_path / "immutable_defaults.py"
+    path.write_text("def collect(items=None, values=(1, 2), name=\"ok\"):\n    return items, values, name\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert not any("Mutable default argument" in d.message for d in result.diagnostics)

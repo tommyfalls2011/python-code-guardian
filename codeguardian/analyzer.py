@@ -128,6 +128,38 @@ class PythonAnalyzer(ast.NodeVisitor):
         self._check_unreachable_statements(node.body)
         self.generic_visit(node)
 
+    def _check_mutable_defaults(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> None:
+        defaults = list(node.args.defaults)
+        defaults.extend(
+            default
+            for default in node.args.kw_defaults
+            if default is not None
+        )
+
+        for default in defaults:
+            is_mutable_literal = isinstance(
+                default,
+                (ast.List, ast.Dict, ast.Set),
+            )
+            is_set_call = (
+                isinstance(default, ast.Call)
+                and isinstance(default.func, ast.Name)
+                and default.func.id == "set"
+                and not default.args
+                and not default.keywords
+            )
+
+            if is_mutable_literal or is_set_call:
+                self.diagnostic(
+                    default,
+                    "WARNING",
+                    "Mutable default argument; use None and create "
+                    "the mutable value inside the function.",
+                )
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         if node.name in self.defined_names:
             self.diagnostic(
@@ -137,6 +169,7 @@ class PythonAnalyzer(ast.NodeVisitor):
             )
 
         self.defined_names.add(node.name)
+        self._check_mutable_defaults(node)
         self._check_unreachable_statements(node.body)
         self.generic_visit(node)
 
