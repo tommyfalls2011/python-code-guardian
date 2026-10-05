@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from codeguardian.scope import analyze_scope
+from codeguardian.scope import analyze_scope, find_unused_definitions
 
 
 def write_python(tmp_path: Path, source: str) -> Path:
@@ -427,3 +427,33 @@ def test_future_annotations_not_treated_as_unused_definition(tmp_path):
     )
     scope = analyze_scope(path)
     assert "annotations" not in scope.defined
+
+
+def test_local_used_only_by_comprehension_is_not_unused(tmp_path):
+    path = tmp_path / "comprehension_use.py"
+    path.write_text(
+        "def collect():\n"
+        "    tokens = [1, 2, 3]\n"
+        "    return [token * 2 for token in tokens]\n",
+        encoding="utf-8",
+    )
+    scope = analyze_scope(path)
+    assert "tokens" not in {
+        name for name, _, _ in find_unused_definitions(scope)
+    }
+
+
+def test_local_used_only_by_nested_function_is_not_unused(tmp_path):
+    path = tmp_path / "nested_use.py"
+    path.write_text(
+        "def outer():\n"
+        "    value = 42\n"
+        "    def inner():\n"
+        "        return value\n"
+        "    return inner()\n",
+        encoding="utf-8",
+    )
+    scope = analyze_scope(path)
+    assert "value" not in {
+        name for name, _, _ in find_unused_definitions(scope)
+    }

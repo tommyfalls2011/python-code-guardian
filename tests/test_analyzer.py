@@ -870,3 +870,38 @@ def test_future_annotations_import_is_not_reported_unused(tmp_path):
         diagnostic.message == "Unused import: 'annotations'"
         for diagnostic in result.diagnostics
     )
+
+
+def test_same_local_import_in_separate_functions_is_not_duplicate(tmp_path):
+    path = tmp_path / "separate_import_scopes.py"
+    path.write_text(
+        "def first():\n"
+        "    import tokenize\n"
+        "    return tokenize.NAME\n"
+        "\n"
+        "def second():\n"
+        "    import tokenize\n"
+        "    return tokenize.NAME\n",
+        encoding="utf-8",
+    )
+    result = analyze_file(path)
+    assert not any(
+        diagnostic.message == "Duplicate import: 'tokenize'"
+        for diagnostic in result.diagnostics
+    )
+
+
+def test_duplicate_import_in_same_function_is_detected(tmp_path):
+    path = tmp_path / "duplicate_local_import.py"
+    path.write_text(
+        "def run():\n"
+        "    import tokenize\n"
+        "    import tokenize\n"
+        "    return tokenize.NAME\n",
+        encoding="utf-8",
+    )
+    result = analyze_file(path)
+    assert any(
+        diagnostic.message == "Duplicate import: 'tokenize'"
+        for diagnostic in result.diagnostics
+    )

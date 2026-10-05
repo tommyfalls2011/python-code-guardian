@@ -393,6 +393,19 @@ def find_unused_definitions(
 
     unused: list[tuple[str, int, int]] = []
 
+    def used_in_scope_or_descendants(name: str, current: Scope) -> bool:
+        if name in current.used:
+            return True
+
+        for child in current.children:
+            if name in child.defined and name not in child.globals and name not in child.nonlocals:
+                continue
+
+            if used_in_scope_or_descendants(name, child):
+                return True
+
+        return False
+
     ignored = {
         "__class__",
         "__module__",
@@ -414,7 +427,7 @@ def find_unused_definitions(
                 if name in current.parameters:
                     continue
 
-                if name not in current.used:
+                if not used_in_scope_or_descendants(name, current):
                     location = current.definition_locations.get(name, (1, 1))
                     unused.append((name, location[0], location[1]))
 

@@ -25,6 +25,7 @@ class PythonAnalyzer(ast.NodeVisitor):
         self.path = path
         self.diagnostics: list[Diagnostic] = []
         self.imports: dict[str, int] = {}
+        self.import_scopes: list[set[str]] = [set()]
         self.definition_scopes: list[set[str]] = [set()]
         self.loop_depth = 0
 
@@ -48,14 +49,14 @@ class PythonAnalyzer(ast.NodeVisitor):
         for alias in node.names:
             name = alias.asname or alias.name.split(".")[0]
 
-            if name in self.imports:
+            if name in self.import_scopes[-1]:
                 self.diagnostic(
                     node,
                     "WARNING",
                     f"Duplicate import: '{name}'",
                 )
-            else:
-                self.imports[name] = node.lineno
+            self.import_scopes[-1].add(name)
+            self.imports.setdefault(name, node.lineno)
 
             self.definition_scopes[-1].add(name)
 
@@ -77,14 +78,14 @@ class PythonAnalyzer(ast.NodeVisitor):
 
             name = alias.asname or alias.name
 
-            if name in self.imports:
+            if name in self.import_scopes[-1]:
                 self.diagnostic(
                     node,
                     "WARNING",
                     f"Duplicate import: '{name}'",
                 )
-            else:
-                self.imports[name] = node.lineno
+            self.import_scopes[-1].add(name)
+            self.imports.setdefault(name, node.lineno)
 
             self.definition_scopes[-1].add(name)
 
@@ -100,9 +101,11 @@ class PythonAnalyzer(ast.NodeVisitor):
 
         self.definition_scopes[-1].add(node.name)
         self.definition_scopes.append(set())
+        self.import_scopes.append(set())
         try:
             self.generic_visit(node)
         finally:
+            self.import_scopes.pop()
             self.definition_scopes.pop()
 
     def visit_Name(self, node: ast.Name) -> None:
@@ -180,9 +183,11 @@ class PythonAnalyzer(ast.NodeVisitor):
         self._check_mutable_defaults(node)
         self._check_unreachable_statements(node.body)
         self.definition_scopes.append(set())
+        self.import_scopes.append(set())
         try:
             self.generic_visit(node)
         finally:
+            self.import_scopes.pop()
             self.definition_scopes.pop()
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
