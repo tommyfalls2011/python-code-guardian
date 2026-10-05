@@ -708,3 +708,34 @@ def test_does_not_flag_dynamic_regex_pattern_in_loop(tmp_path):
         "re.compile() inside a loop" in d.message
         for d in result.diagnostics
     )
+
+
+
+
+
+def test_detects_constant_list_membership_in_loop(tmp_path):
+    path = tmp_path / "list_membership.py"
+    path.write_text("for value in range(10):\n    if value in [1, 3, 5]:\n        print(value)\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Constant list/tuple membership test inside a loop" in d.message for d in result.diagnostics)
+
+
+def test_detects_constant_tuple_membership_in_loop(tmp_path):
+    path = tmp_path / "tuple_membership.py"
+    path.write_text("for value in range(10):\n    if value not in (2, 4, 6):\n        print(value)\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Constant list/tuple membership test inside a loop" in d.message for d in result.diagnostics)
+
+
+def test_does_not_flag_set_membership_in_loop(tmp_path):
+    path = tmp_path / "set_membership.py"
+    path.write_text("for value in range(10):\n    if value in {1, 3, 5}:\n        print(value)\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert not any("Constant list/tuple membership test inside a loop" in d.message for d in result.diagnostics)
+
+
+def test_does_not_flag_dynamic_membership_in_loop(tmp_path):
+    path = tmp_path / "dynamic_membership.py"
+    path.write_text("def process(values, allowed):\n    for value in values:\n        if value in allowed:\n            print(value)\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert not any("Constant list/tuple membership test inside a loop" in d.message for d in result.diagnostics)

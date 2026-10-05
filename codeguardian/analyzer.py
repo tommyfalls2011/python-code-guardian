@@ -235,6 +235,33 @@ class PythonAnalyzer(ast.NodeVisitor):
         finally:
             self.loop_depth -= 1
 
+    def visit_Compare(self, node: ast.Compare) -> None:
+        if self.loop_depth > 0:
+            for operator, comparator in zip(node.ops, node.comparators):
+                if not isinstance(operator, (ast.In, ast.NotIn)):
+                    continue
+
+                if not isinstance(comparator, (ast.List, ast.Tuple)):
+                    continue
+
+                if not comparator.elts:
+                    continue
+
+                if not all(
+                    isinstance(element, ast.Constant)
+                    for element in comparator.elts
+                ):
+                    continue
+
+                self.diagnostic(
+                    comparator,
+                    "INFO",
+                    "Constant list/tuple membership test inside a loop; "
+                    "consider reusing a set or frozenset outside the loop.",
+                )
+
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:
         if (
             self.loop_depth > 0
