@@ -104,6 +104,52 @@ class ScopeAnalyzer(ast.NodeVisitor):
         elif isinstance(node.ctx, ast.Load):
             self.use(node.id, node)
 
+    @staticmethod
+    def _dir_membership_guard_name(node: ast.AST) -> str | None:
+        if not isinstance(node, ast.Compare):
+            return None
+        if len(node.ops) != 1 or len(node.comparators) != 1:
+            return None
+        if not isinstance(node.ops[0], ast.In):
+            return None
+        if not (
+            isinstance(node.left, ast.Constant)
+            and isinstance(node.left.value, str)
+        ):
+            return None
+
+        comparator = node.comparators[0]
+        if not (
+            isinstance(comparator, ast.Call)
+            and isinstance(comparator.func, ast.Name)
+            and comparator.func.id == "dir"
+            and not comparator.args
+            and not comparator.keywords
+        ):
+            return None
+
+        return node.left.value
+
+    def visit_IfExp(self, node: ast.IfExp) -> None:
+        guarded_name = self._dir_membership_guard_name(node.test)
+        self.visit(node.test)
+
+        if guarded_name is None:
+            self.visit(node.body)
+        else:
+            used_before = guarded_name in self.current.used
+            location_before = self.current.usage_locations.get(guarded_name)
+
+            self.visit(node.body)
+
+            if not used_before:
+                self.current.used.discard(guarded_name)
+                self.current.usage_locations.pop(guarded_name, None)
+            elif location_before is not None:
+                self.current.usage_locations[guarded_name] = location_before
+
+        self.visit(node.orelse)
+
     def visit_Global(self, node: ast.Global) -> None:
         self.current.globals.update(node.names)
 

@@ -566,3 +566,67 @@ def outer():
         name == "count"
         for name, _, _ in find_unused_definitions(scope)
     )
+
+
+def test_dir_guarded_conditional_name_is_not_undefined(tmp_path):
+    path = write_python(
+        tmp_path,
+        """
+stamp = (
+    datetime.datetime.now()
+    if "datetime" in dir()
+    else __import__("datetime").datetime.now()
+)
+""",
+    )
+
+    scope = analyze_scope(path)
+    undefined = __import__(
+        "codeguardian.scope",
+        fromlist=["find_undefined_names"],
+    ).find_undefined_names(scope)
+
+    assert undefined == []
+
+
+def test_dir_guard_does_not_hide_unguarded_later_use(tmp_path):
+    path = write_python(
+        tmp_path,
+        """
+stamp = (
+    datetime.datetime.now()
+    if "datetime" in dir()
+    else __import__("datetime").datetime.now()
+)
+print(datetime)
+""",
+    )
+
+    scope = analyze_scope(path)
+    undefined = __import__(
+        "codeguardian.scope",
+        fromlist=["find_undefined_names"],
+    ).find_undefined_names(scope)
+
+    assert any(name == "datetime" for name, _, _ in undefined)
+
+
+def test_dir_guard_for_different_name_does_not_hide_undefined(tmp_path):
+    path = write_python(
+        tmp_path,
+        """
+stamp = (
+    datetime.datetime.now()
+    if "other_name" in dir()
+    else __import__("datetime").datetime.now()
+)
+""",
+    )
+
+    scope = analyze_scope(path)
+    undefined = __import__(
+        "codeguardian.scope",
+        fromlist=["find_undefined_names"],
+    ).find_undefined_names(scope)
+
+    assert any(name == "datetime" for name, _, _ in undefined)
