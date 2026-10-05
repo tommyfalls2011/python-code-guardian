@@ -337,6 +337,17 @@ def analyze_scope(path: Path) -> Scope:
 
 BUILTIN_NAMES = set(dir(builtins))
 
+# Names normally supplied by Python's module execution environment.
+MODULE_RUNTIME_NAMES = {
+    "__file__",
+    "__name__",
+    "__package__",
+    "__loader__",
+    "__spec__",
+    "__cached__",
+    "__builtins__",
+}
+
 
 def find_undefined_names(
     scope: Scope,
@@ -366,7 +377,10 @@ def find_undefined_names(
                 return True
             parent = parent.parent
 
-        return name in BUILTIN_NAMES
+        return (
+            name in BUILTIN_NAMES
+            or name in MODULE_RUNTIME_NAMES
+        )
 
     def walk(current: Scope) -> None:
         for name in current.used:

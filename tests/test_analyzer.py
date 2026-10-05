@@ -1033,3 +1033,69 @@ def test_same_method_name_in_same_class_is_duplicate(tmp_path):
         d.message == "Name 'run' is defined more than once."
         for d in result.diagnostics
     )
+
+
+
+def test_distinct_dotted_imports_are_not_duplicates(tmp_path):
+    path = tmp_path / "dotted_imports.py"
+    path.write_text(
+        "import tornado.web\n"
+        "import tornado.websocket\n"
+        "import tornado.httpserver\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert not any(
+        diagnostic.message == "Duplicate import: 'tornado'"
+        for diagnostic in result.diagnostics
+    )
+
+
+def test_exact_dotted_import_is_still_duplicate(tmp_path):
+    path = tmp_path / "duplicate_dotted_import.py"
+    path.write_text(
+        "import tornado.web\n"
+        "import tornado.web\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert any(
+        diagnostic.message == "Duplicate import: 'tornado'"
+        for diagnostic in result.diagnostics
+    )
+
+
+def test_dotted_import_alias_identity_is_respected(tmp_path):
+    path = tmp_path / "aliased_dotted_import.py"
+    path.write_text(
+        "import package.first as first\n"
+        "import package.second as second\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert not any(
+        "Duplicate import" in diagnostic.message
+        for diagnostic in result.diagnostics
+    )
+
+
+def test_analyzer_does_not_report_file_as_undefined(tmp_path):
+    path = tmp_path / "module_file.py"
+    path.write_text(
+        "from pathlib import Path\n"
+        "HERE = Path(__file__).parent\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert not any(
+        diagnostic.message == "Undefined name: '__file__'"
+        for diagnostic in result.diagnostics
+    )

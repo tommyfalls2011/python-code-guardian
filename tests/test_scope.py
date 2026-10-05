@@ -457,3 +457,48 @@ def test_local_used_only_by_nested_function_is_not_unused(tmp_path):
     assert "value" not in {
         name for name, _, _ in find_unused_definitions(scope)
     }
+
+
+
+def test_module_runtime_file_name_is_defined(tmp_path):
+    path = write_python(
+        tmp_path,
+        """
+value = __file__
+""",
+    )
+
+    scope = analyze_scope(path)
+
+    undefined = __import__(
+        "codeguardian.scope",
+        fromlist=["find_undefined_names"],
+    ).find_undefined_names(scope)
+
+    assert undefined == []
+
+
+def test_module_runtime_names_are_defined_at_module_scope(tmp_path):
+    path = write_python(
+        tmp_path,
+        """
+values = (
+    __file__,
+    __name__,
+    __package__,
+    __loader__,
+    __spec__,
+    __cached__,
+    __builtins__,
+)
+""",
+    )
+
+    scope = analyze_scope(path)
+
+    undefined = __import__(
+        "codeguardian.scope",
+        fromlist=["find_undefined_names"],
+    ).find_undefined_names(scope)
+
+    assert undefined == []

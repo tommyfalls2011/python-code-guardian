@@ -1004,13 +1004,9 @@ def test_deterministic_unused_import_not_offered_for_all_reexport(
     ) is None
 
 
-def test_duplicate_import_repair_rejects_same_alias_different_modules(
+def test_same_alias_different_modules_are_not_duplicate_imports(
     tmp_path,
 ):
-    from codeguardian.ai.engine import (
-        deterministic_duplicate_import_edit,
-    )
-
     source = (
         "import os as value\n"
         "import sys as value\n"
@@ -1018,17 +1014,15 @@ def test_duplicate_import_repair_rejects_same_alias_different_modules(
         "print(value.version)\n"
     )
 
-    diagnostic = diagnostic_for(
-        tmp_path,
-        source,
-        "Duplicate import: 'value'",
-    )
+    path = tmp_path / "sample.py"
+    path.write_text(source, encoding="utf-8")
 
-    assert diagnostic.line == 2
-    assert deterministic_duplicate_import_edit(
-        source,
-        diagnostic,
-    ) is None
+    diagnostics = analyze_file(path).diagnostics
+
+    assert not any(
+        diagnostic.message == "Duplicate import: 'value'"
+        for diagnostic in diagnostics
+    )
 
 
 def test_duplicate_from_import_repair_rejects_same_binding_different_modules(
