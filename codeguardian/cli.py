@@ -7,6 +7,7 @@ from . import __version__
 from .analyzer import analyze_file
 from .ai.engine import (
     apply_evaluated_ai_edit,
+    deterministic_duplicate_import_edit,
     evaluate_ai_edit,
     evaluate_ai_edits,
 )
@@ -306,7 +307,23 @@ def main() -> int:
                     continue
 
                 try:
-                    if diagnostic.message.startswith(
+                    deterministic_edit = (
+                        deterministic_duplicate_import_edit(
+                            source,
+                            diagnostic,
+                        )
+                    )
+
+                    if deterministic_edit is not None:
+                        evaluation = evaluate_ai_edit(
+                            source=source,
+                            diagnostic=diagnostic,
+                            model=args.ai_model,
+                            provider=lambda **kwargs: (
+                                deterministic_edit
+                            ),
+                        )
+                    elif diagnostic.message.startswith(
                         "Mutable default argument"
                     ):
                         evaluation = evaluate_ai_edits(

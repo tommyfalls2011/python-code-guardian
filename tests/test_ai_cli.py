@@ -598,6 +598,7 @@ def test_cli_ai_repair_does_not_retry_unchanged_rejection(
         source,
         diagnostic,
         model,
+        provider=None,
     ):
         attempts.append(
             (
@@ -696,4 +697,91 @@ def test_cli_ai_repair_does_not_retry_unchanged_rejection(
     assert "[AI REJECTED]" in output
     assert "definitely_not_defined" not in (
         target.read_text(encoding="utf-8")
+    )
+
+
+def test_cli_duplicate_import_uses_deterministic_repair(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    import codeguardian.cli as cli
+
+    target = tmp_path / "sample.py"
+    target.write_text(
+        "import os\n"
+        "import os\n"
+        "\n"
+        "print(os.getcwd())\n",
+        encoding="utf-8",
+    )
+
+    def forbidden_ollama(*args, **kwargs):
+        raise AssertionError(
+            "Ollama evaluator must not be used "
+            "for a safe duplicate import"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_ollama,
+    )
+
+    original_evaluate = cli.evaluate_ai_edit
+
+    calls = []
+
+    def guarded_evaluate(
+        *,
+        source,
+        diagnostic,
+        model,
+        provider=None,
+    ):
+        calls.append(provider)
+
+        assert provider is not None
+
+        return original_evaluate(
+            source=source,
+            diagnostic=diagnostic,
+            model=model,
+            provider=provider,
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codeguardian",
+            str(target),
+            "--ai-repair",
+            "--ai-model",
+            "must-not-be-called",
+            "--max-repairs",
+            "1",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert len(calls) == 1
+    assert calls[0] is not None
+    assert "AI repairs applied: 1" in output
+
+    assert target.read_text(
+        encoding="utf-8"
+    ) == (
+        "import os\n"
+        "\n"
+        "print(os.getcwd())\n"
     )

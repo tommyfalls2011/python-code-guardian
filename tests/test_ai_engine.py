@@ -568,3 +568,139 @@ def test_engine_allows_deleting_entire_if_false_block(
     # the guard and its indented body, so syntax validation
     # must reject this candidate rather than expose the body.
     assert result.accepted is False
+
+
+def test_deterministic_duplicate_import_edit_deletes_second_import(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_import_edit,
+    )
+
+    source = (
+        "import os\n"
+        "import os\n"
+        "\n"
+        "print(os.getcwd())\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Duplicate import",
+    )
+
+    edit = deterministic_duplicate_import_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 2
+
+
+def test_deterministic_duplicate_import_edit_rejects_mixed_import(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_import_edit,
+    )
+
+    source = (
+        "import os\n"
+        "import os, sys\n"
+        "\n"
+        "print(os.getcwd(), sys.version)\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Duplicate import",
+    )
+
+    edit = deterministic_duplicate_import_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is None
+
+
+def test_deterministic_duplicate_from_import_edit_is_safe(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_import_edit,
+    )
+
+    source = (
+        "from pathlib import Path\n"
+        "from pathlib import Path\n"
+        "\n"
+        "print(Path('.'))\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Duplicate import",
+    )
+
+    edit = deterministic_duplicate_import_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 2
+
+
+def test_duplicate_import_evaluation_accepts_one_occurrence_reduction(
+    tmp_path,
+):
+    from codeguardian.ai.edit import AIEdit
+    from codeguardian.ai.engine import evaluate_ai_edit
+
+    source = (
+        "import os\n"
+        "import os\n"
+        "import os\n"
+        "\n"
+        "print(os.getcwd())\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Duplicate import",
+    )
+
+    evaluation = evaluate_ai_edit(
+        source=source,
+        diagnostic=diagnostic,
+        model="unused",
+        provider=lambda **kwargs: AIEdit(
+            operation="delete",
+            line=diagnostic.line,
+        ),
+    )
+
+    assert evaluation.accepted
+    assert evaluation.candidate_source is not None
+
+    before_matching = [
+        item
+        for item in evaluation.before_diagnostics
+        if item.message == diagnostic.message
+    ]
+    after_matching = [
+        item
+        for item in evaluation.after_diagnostics
+        if item.message == diagnostic.message
+    ]
+
+    assert len(before_matching) == 2
+    assert len(after_matching) == 1

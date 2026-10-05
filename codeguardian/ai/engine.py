@@ -264,6 +264,88 @@ def _exposes_if_false_body(
     )
 
 
+def deterministic_duplicate_import_edit(
+    source: str,
+    diagnostic: Diagnostic,
+) -> AIEdit | None:
+    """Return a safe deletion for a standalone duplicate import."""
+    if not diagnostic.message.startswith(
+        "Duplicate import: "
+    ):
+        return None
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+
+    target: ast.Import | ast.ImportFrom | None = None
+
+    for node in ast.walk(tree):
+        if not isinstance(
+            node,
+            (ast.Import, ast.ImportFrom),
+        ):
+            continue
+
+        if node.lineno == diagnostic.line:
+            target = node
+            break
+
+    if target is None:
+        return None
+
+    if len(target.names) != 1:
+        return None
+
+    alias = target.names[0]
+
+    if isinstance(target, ast.Import):
+        binding = (
+            alias.asname
+            or alias.name.split(".")[0]
+        )
+    else:
+        if alias.name == "*":
+            return None
+        binding = alias.asname or alias.name
+
+    expected = f"Duplicate import: '{binding}'"
+
+    if diagnostic.message != expected:
+        return None
+
+    lines = source.splitlines()
+
+    if not (
+        1 <= diagnostic.line <= len(lines)
+    ):
+        return None
+
+    line = lines[diagnostic.line - 1]
+
+    try:
+        line_tree = ast.parse(line.lstrip())
+    except SyntaxError:
+        return None
+
+    if len(line_tree.body) != 1:
+        return None
+
+    line_node = line_tree.body[0]
+
+    if not isinstance(
+        line_node,
+        (ast.Import, ast.ImportFrom),
+    ):
+        return None
+
+    return AIEdit(
+        operation="delete",
+        line=diagnostic.line,
+    )
+
+
 def _analyze_source(source: str) -> list[Diagnostic]:
     with tempfile.TemporaryDirectory(
         prefix="codeguardian-ai-"
@@ -393,12 +475,29 @@ def evaluate_ai_edit(
         )
 
     target_key = _diagnostic_key(diagnostic)
-    target_still_present = any(
+
+    before_target_count = sum(
+        _diagnostic_key(item) == target_key
+        for item in before
+    )
+    after_target_count = sum(
         _diagnostic_key(item) == target_key
         for item in after
     )
 
-    if target_still_present:
+    duplicate_import_reduction = (
+        diagnostic.message.startswith("Duplicate import: ")
+        and edit.operation == "delete"
+        and edit.line == diagnostic.line
+        and after_target_count == before_target_count - 1
+    )
+
+    target_still_present = after_target_count > 0
+
+    if (
+        target_still_present
+        and not duplicate_import_reduction
+    ):
         return AIEditEvaluation(
             accepted=False,
             reason="target diagnostic was not repaired",
