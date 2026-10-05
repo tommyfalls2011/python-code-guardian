@@ -10,13 +10,22 @@ class AIEdit:
     operation: str
     line: int
     content: str = ""
+    end_line: int | None = None
 
 
 def apply_ai_edit(source: str, edit: AIEdit) -> str:
     lines = source.splitlines(keepends=True)
 
-    if edit.operation not in {"delete", "replace", "insert_before", "insert_after"}:
-        raise ValueError(f"unsupported AI edit operation: {edit.operation}")
+    if edit.operation not in {
+        "delete",
+        "delete_range",
+        "replace",
+        "insert_before",
+        "insert_after",
+    }:
+        raise ValueError(
+            f"unsupported AI edit operation: {edit.operation}"
+        )
 
     if edit.line < 1 or edit.line > len(lines):
         raise ValueError("AI edit line is outside the source")
@@ -26,8 +35,38 @@ def apply_ai_edit(source: str, edit: AIEdit) -> str:
     if edit.operation == "delete":
         if edit.content:
             raise ValueError("delete operation must not contain content")
+        if edit.end_line is not None:
+            raise ValueError(
+                "delete operation must not specify end_line"
+            )
         del lines[index]
         return "".join(lines)
+
+    if edit.operation == "delete_range":
+        if edit.content:
+            raise ValueError(
+                "delete_range operation must not contain content"
+            )
+        if edit.end_line is None:
+            raise ValueError(
+                "delete_range operation requires end_line"
+            )
+        if edit.end_line < edit.line:
+            raise ValueError(
+                "delete_range end_line precedes start line"
+            )
+        if edit.end_line > len(lines):
+            raise ValueError(
+                "delete_range end_line is outside the source"
+            )
+
+        del lines[index:edit.end_line]
+        return "".join(lines)
+
+    if edit.end_line is not None:
+        raise ValueError(
+            f"{edit.operation} operation must not specify end_line"
+        )
 
     content = edit.content
     if not content:
@@ -77,7 +116,11 @@ def apply_ai_edits(
         destructive = [
             edit
             for edit in line_edits
-            if edit.operation in {"delete", "replace"}
+            if edit.operation in {
+                "delete",
+                "delete_range",
+                "replace",
+            }
         ]
 
         before = [
@@ -102,10 +145,56 @@ def apply_ai_edits(
                 "AI edit transaction contains conflicting lines"
             )
 
-        if destructive and destructive[0].operation == "delete":
+        if (
+            destructive
+            and destructive[0].operation
+            in {"delete", "delete_range"}
+        ):
             if before or after:
                 raise ValueError(
                     "AI edit transaction contains conflicting lines"
+                )
+
+    delete_ranges: list[tuple[int, int]] = []
+
+    for edit in edits:
+        if edit.operation != "delete_range":
+            continue
+
+        if edit.end_line is None:
+            raise ValueError(
+                "delete_range operation requires end_line"
+            )
+        if edit.end_line < edit.line:
+            raise ValueError(
+                "delete_range end_line precedes start line"
+            )
+        if edit.end_line > line_count:
+            raise ValueError(
+                "delete_range end_line is outside the source"
+            )
+
+        delete_ranges.append(
+            (edit.line, edit.end_line)
+        )
+
+    for index, (start, end) in enumerate(delete_ranges):
+        for other_start, other_end in delete_ranges[index + 1:]:
+            if not (
+                end < other_start
+                or start > other_end
+            ):
+                raise ValueError(
+                    "AI edit transaction contains overlapping ranges"
+                )
+
+        for edit in edits:
+            if edit.operation == "delete_range":
+                continue
+
+            if start <= edit.line <= end:
+                raise ValueError(
+                    "AI edit transaction contains overlapping ranges"
                 )
 
     candidate = source
@@ -114,6 +203,7 @@ def apply_ai_edits(
         "insert_after": 0,
         "replace": 1,
         "delete": 1,
+        "delete_range": 1,
         "insert_before": 2,
     }
 

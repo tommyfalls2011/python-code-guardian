@@ -249,3 +249,215 @@ def test_normalize_does_not_merge_without_deeper_indent():
     ]
 
     assert normalize_ai_edits(edits) == edits
+
+
+def test_apply_ai_edit_delete_range():
+    source = (
+        "before = 1\n"
+        "def duplicate():\n"
+        "    value = 2\n"
+        "    return value\n"
+        "after = 3\n"
+    )
+
+    edit = AIEdit(
+        operation="delete_range",
+        line=2,
+        end_line=4,
+    )
+
+    assert apply_ai_edit(source, edit) == (
+        "before = 1\n"
+        "after = 3\n"
+    )
+
+
+def test_apply_ai_edit_delete_range_requires_end_line():
+    source = "one = 1\ntwo = 2\n"
+
+    edit = AIEdit(
+        operation="delete_range",
+        line=1,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="requires end_line",
+    ):
+        apply_ai_edit(source, edit)
+
+
+def test_apply_ai_edit_delete_range_rejects_reverse_range():
+    source = "one = 1\ntwo = 2\n"
+
+    edit = AIEdit(
+        operation="delete_range",
+        line=2,
+        end_line=1,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="precedes start line",
+    ):
+        apply_ai_edit(source, edit)
+
+
+def test_apply_ai_edit_delete_range_rejects_past_eof():
+    source = "one = 1\ntwo = 2\n"
+
+    edit = AIEdit(
+        operation="delete_range",
+        line=1,
+        end_line=3,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="outside the source",
+    ):
+        apply_ai_edit(source, edit)
+
+
+def test_apply_ai_edit_delete_range_rejects_content():
+    source = "one = 1\ntwo = 2\n"
+
+    edit = AIEdit(
+        operation="delete_range",
+        line=1,
+        end_line=2,
+        content="replacement",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must not contain content",
+    ):
+        apply_ai_edit(source, edit)
+
+
+def test_apply_ai_edit_non_range_rejects_end_line():
+    source = "one = 1\ntwo = 2\n"
+
+    edit = AIEdit(
+        operation="replace",
+        line=1,
+        end_line=2,
+        content="one = 3",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must not specify end_line",
+    ):
+        apply_ai_edit(source, edit)
+
+
+def test_apply_ai_edits_rejects_overlapping_delete_ranges():
+    source = (
+        "one = 1\n"
+        "two = 2\n"
+        "three = 3\n"
+        "four = 4\n"
+    )
+
+    edits = [
+        AIEdit(
+            operation="delete_range",
+            line=1,
+            end_line=2,
+        ),
+        AIEdit(
+            operation="delete_range",
+            line=2,
+            end_line=3,
+        ),
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="overlapping ranges",
+    ):
+        apply_ai_edits(source, edits)
+
+
+def test_apply_ai_edits_rejects_edit_inside_delete_range():
+    source = (
+        "one = 1\n"
+        "two = 2\n"
+        "three = 3\n"
+        "four = 4\n"
+    )
+
+    edits = [
+        AIEdit(
+            operation="delete_range",
+            line=1,
+            end_line=3,
+        ),
+        AIEdit(
+            operation="replace",
+            line=2,
+            content="two = 20",
+        ),
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="overlapping ranges",
+    ):
+        apply_ai_edits(source, edits)
+
+
+def test_apply_ai_edits_allows_nonoverlapping_range_and_edit():
+    source = (
+        "one = 1\n"
+        "two = 2\n"
+        "three = 3\n"
+        "four = 4\n"
+    )
+
+    edits = [
+        AIEdit(
+            operation="delete_range",
+            line=1,
+            end_line=2,
+        ),
+        AIEdit(
+            operation="replace",
+            line=4,
+            content="four = 40",
+        ),
+    ]
+
+    assert apply_ai_edits(source, edits) == (
+        "three = 3\n"
+        "four = 40\n"
+    )
+
+
+def test_apply_ai_edits_rejects_insert_inside_delete_range():
+    source = (
+        "one = 1\n"
+        "two = 2\n"
+        "three = 3\n"
+    )
+
+    edits = [
+        AIEdit(
+            operation="delete_range",
+            line=1,
+            end_line=2,
+        ),
+        AIEdit(
+            operation="insert_after",
+            line=2,
+            content="added = True",
+        ),
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="overlapping ranges",
+    ):
+        apply_ai_edits(source, edits)
