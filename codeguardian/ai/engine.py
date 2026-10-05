@@ -340,6 +340,47 @@ def deterministic_duplicate_import_edit(
     ):
         return None
 
+    target_dump = ast.dump(
+        target,
+        include_attributes=False,
+    )
+
+    identical_earlier_sibling = False
+
+    for parent in ast.walk(tree):
+        for _field, value in ast.iter_fields(parent):
+            if not isinstance(value, list):
+                continue
+
+            target_index = None
+
+            for index, item in enumerate(value):
+                if item is target:
+                    target_index = index
+                    break
+
+            if target_index is None:
+                continue
+
+            identical_earlier_sibling = any(
+                isinstance(
+                    item,
+                    (ast.Import, ast.ImportFrom),
+                )
+                and ast.dump(
+                    item,
+                    include_attributes=False,
+                ) == target_dump
+                for item in value[:target_index]
+            )
+            break
+
+        if identical_earlier_sibling:
+            break
+
+    if not identical_earlier_sibling:
+        return None
+
     return AIEdit(
         operation="delete",
         line=diagnostic.line,

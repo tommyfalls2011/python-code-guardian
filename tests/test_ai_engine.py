@@ -1002,3 +1002,146 @@ def test_deterministic_unused_import_not_offered_for_all_reexport(
             },
         )(),
     ) is None
+
+
+def test_duplicate_import_repair_rejects_same_alias_different_modules(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_import_edit,
+    )
+
+    source = (
+        "import os as value\n"
+        "import sys as value\n"
+        "\n"
+        "print(value.version)\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Duplicate import: 'value'",
+    )
+
+    assert diagnostic.line == 2
+    assert deterministic_duplicate_import_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_duplicate_from_import_repair_rejects_same_binding_different_modules(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_import_edit,
+    )
+
+    source = (
+        "from pathlib import Path as value\n"
+        "from os import path as value\n"
+        "\n"
+        "print(value)\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Duplicate import: 'value'",
+    )
+
+    assert diagnostic.line == 2
+    assert deterministic_duplicate_import_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_duplicate_import_repair_accepts_identical_alias_sibling(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_import_edit,
+    )
+
+    source = (
+        "import os as operating_system\n"
+        "import os as operating_system\n"
+        "\n"
+        "print(operating_system.getcwd())\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Duplicate import: 'operating_system'",
+    )
+
+    edit = deterministic_duplicate_import_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 2
+
+
+def test_duplicate_from_import_repair_accepts_identical_alias_sibling(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_import_edit,
+    )
+
+    source = (
+        "from pathlib import Path as FilePath\n"
+        "from pathlib import Path as FilePath\n"
+        "\n"
+        "print(FilePath('.'))\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Duplicate import: 'FilePath'",
+    )
+
+    edit = deterministic_duplicate_import_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 2
+
+
+def test_duplicate_import_repair_rejects_identical_import_in_other_branch(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        Diagnostic,
+        deterministic_duplicate_import_edit,
+    )
+
+    source = (
+        "if condition:\n"
+        "    import os\n"
+        "else:\n"
+        "    import os\n"
+    )
+
+    diagnostic = Diagnostic(
+        file=tmp_path / "sample.py",
+        line=4,
+        column=5,
+        severity="WARNING",
+        message="Duplicate import: 'os'",
+    )
+
+    assert deterministic_duplicate_import_edit(
+        source,
+        diagnostic,
+    ) is None
