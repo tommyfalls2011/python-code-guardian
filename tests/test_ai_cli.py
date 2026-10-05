@@ -1224,3 +1224,72 @@ def test_cli_safe_if_false_skip_does_not_block_other_repairs(
     assert "Deterministic repairs applied: 1" in output
     assert "AI repairs applied: 0" in output
     assert "[SKIPPED SAFE]" in output
+
+
+def test_cli_safe_if_false_skip_reported_once_across_rescans(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "import os\n"
+        "import os\n"
+        "import sys\n"
+        "import sys\n"
+        "\n"
+        "def example():\n"
+        "    if False:\n"
+        '        print("never")\n'
+        "    return os.getcwd(), sys.version\n",
+        encoding="utf-8",
+    )
+
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        assert kwargs.get("provider") is not None
+        return real_evaluate(*args, **kwargs)
+
+    def forbidden_multi(*args, **kwargs):
+        raise AssertionError(
+            "AI must not be called during safe-skip test"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_multi,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "5",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert output.count("[SKIPPED SAFE]") == 1
+    assert "Deterministic repairs applied: 2" in output
+    assert "AI repairs applied: 0" in output
+
+    source = path.read_text(encoding="utf-8")
+    assert source.count("import os") == 1
+    assert source.count("import sys") == 1
+    assert "if False:" in source

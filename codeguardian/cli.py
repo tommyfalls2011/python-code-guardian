@@ -278,6 +278,7 @@ def main() -> int:
         deterministic_repairs_applied = 0
         ai_repairs_applied = 0
         rejected_attempts = set()
+        safe_skips_reported = set()
 
         while (
             report.total_count
@@ -324,16 +325,27 @@ def main() -> int:
                         "and will never execute."
                     )
                 ):
-                    print(
-                        f"[SKIPPED SAFE] {diagnostic.file}:"
-                        f"{diagnostic.line}:"
-                        f"{diagnostic.column}"
+                    safe_skip_key = (
+                        diagnostic.file,
+                        diagnostic.severity.upper(),
+                        diagnostic.message,
                     )
-                    print(
-                        "    Automatic repair could expose "
-                        "intentionally unreachable code."
-                    )
-                    print()
+
+                    if safe_skip_key not in safe_skips_reported:
+                        print(
+                            f"[SKIPPED SAFE] {diagnostic.file}:"
+                            f"{diagnostic.line}:"
+                            f"{diagnostic.column}"
+                        )
+                        print(
+                            "    Automatic repair could expose "
+                            "intentionally unreachable code."
+                        )
+                        print()
+                        safe_skips_reported.add(
+                            safe_skip_key
+                        )
+
                     rejected_attempts.add(
                         rejection_key
                     )
