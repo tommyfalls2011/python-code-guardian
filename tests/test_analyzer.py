@@ -83,14 +83,45 @@ if False:
     )
 
 
-def test_detects_while_true(tmp_path: Path):
+def test_while_true_with_break_is_not_flagged(tmp_path: Path):
     source = tmp_path / "loop.py"
-
     source.write_text(
-        """
-while True:
-    break
-""",
+        "while True:\n"
+        "    break\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(source)
+
+    assert not any(
+        "while True" in diagnostic.message
+        for diagnostic in result.diagnostics
+    )
+
+
+def test_while_true_without_break_is_flagged(tmp_path: Path):
+    source = tmp_path / "loop.py"
+    source.write_text(
+        "while True:\n"
+        "    print('running')\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(source)
+
+    assert any(
+        "while True" in diagnostic.message
+        and "no obvious reachable exit" in diagnostic.message
+        for diagnostic in result.diagnostics
+    )
+
+
+def test_nested_loop_break_does_not_exit_outer_while(tmp_path: Path):
+    source = tmp_path / "nested_loop.py"
+    source.write_text(
+        "while True:\n"
+        "    for value in range(3):\n"
+        "        break\n",
         encoding="utf-8",
     )
 

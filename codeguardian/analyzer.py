@@ -169,12 +169,57 @@ class PythonAnalyzer(ast.NodeVisitor):
         self._check_unreachable_statements(node.orelse)
         self.generic_visit(node)
 
+    def _loop_has_break(self, statements: list[ast.stmt]) -> bool:
+        class BreakFinder(ast.NodeVisitor):
+            def __init__(self) -> None:
+                self.found = False
+
+            def visit_Break(self, node: ast.Break) -> None:
+                self.found = True
+
+            def visit_For(self, node: ast.For) -> None:
+                return
+
+            def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+                return
+
+            def visit_While(self, node: ast.While) -> None:
+                return
+
+            def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+                return
+
+            def visit_AsyncFunctionDef(
+                self,
+                node: ast.AsyncFunctionDef,
+            ) -> None:
+                return
+
+            def visit_Lambda(self, node: ast.Lambda) -> None:
+                return
+
+            def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                return
+
+        finder = BreakFinder()
+
+        for statement in statements:
+            finder.visit(statement)
+            if finder.found:
+                return True
+
+        return False
+
     def visit_While(self, node: ast.While) -> None:
-        if isinstance(node.test, ast.Constant) and node.test.value is True:
+        if (
+            isinstance(node.test, ast.Constant)
+            and node.test.value is True
+            and not self._loop_has_break(node.body)
+        ):
             self.diagnostic(
                 node,
                 "INFO",
-                "Loop uses 'while True'; verify that it has a reachable exit.",
+                "Loop uses 'while True' with no obvious reachable exit.",
             )
 
         self._check_unreachable_statements(node.body)
