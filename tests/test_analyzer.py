@@ -937,3 +937,99 @@ def test_import_not_exported_through_all_is_still_unused(tmp_path):
         diagnostic.message == "Unused import: 'Path'"
         for diagnostic in result.diagnostics
     )
+
+
+def test_assignment_then_function_is_reported_as_rebinding(
+    tmp_path,
+):
+    path = tmp_path / "assignment_rebind.py"
+    path.write_text(
+        "value = 1\n"
+        "\n"
+        "def value():\n"
+        "    return 2\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+    messages = [d.message for d in result.diagnostics]
+
+    assert "Name 'value' is rebound by a function definition." in messages
+    assert "Name 'value' is defined more than once." not in messages
+
+
+def test_import_then_function_is_reported_as_rebinding(
+    tmp_path,
+):
+    path = tmp_path / "import_rebind.py"
+    path.write_text(
+        "import json\n"
+        "\n"
+        "def json():\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+    messages = [d.message for d in result.diagnostics]
+
+    assert "Name 'json' is rebound by a function definition." in messages
+    assert "Name 'json' is defined more than once." not in messages
+
+
+def test_assignment_then_class_is_reported_as_rebinding(
+    tmp_path,
+):
+    path = tmp_path / "class_rebind.py"
+    path.write_text(
+        "Thing = 1\n"
+        "\n"
+        "class Thing:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+    messages = [d.message for d in result.diagnostics]
+
+    assert "Name 'Thing' is rebound by a class definition." in messages
+    assert "Name 'Thing' is defined more than once." not in messages
+
+
+def test_real_duplicate_class_still_detected(tmp_path):
+    path = tmp_path / "duplicate_class.py"
+    path.write_text(
+        "class Thing:\n"
+        "    pass\n"
+        "\n"
+        "class Thing:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert any(
+        d.message == "Name 'Thing' is defined more than once."
+        for d in result.diagnostics
+    )
+
+
+def test_same_method_name_in_same_class_is_duplicate(tmp_path):
+    path = tmp_path / "duplicate_method.py"
+    path.write_text(
+        "class Thing:\n"
+        "    def run(self):\n"
+        "        return 1\n"
+        "\n"
+        "    def run(self):\n"
+        "        return 2\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert any(
+        d.message == "Name 'run' is defined more than once."
+        for d in result.diagnostics
+    )

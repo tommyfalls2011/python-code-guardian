@@ -27,6 +27,7 @@ class PythonAnalyzer(ast.NodeVisitor):
         self.imports: dict[str, int] = {}
         self.import_scopes: list[set[str]] = [set()]
         self.definition_scopes: list[set[str]] = [set()]
+        self.callable_scopes: list[set[str]] = [set()]
         self.loop_depth = 0
 
     def diagnostic(
@@ -92,19 +93,28 @@ class PythonAnalyzer(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        if node.name in self.definition_scopes[-1]:
+        if node.name in self.callable_scopes[-1]:
             self.diagnostic(
                 node,
                 "WARNING",
                 f"Name '{node.name}' is defined more than once.",
             )
+        elif node.name in self.definition_scopes[-1]:
+            self.diagnostic(
+                node,
+                "WARNING",
+                f"Name '{node.name}' is rebound by a class definition.",
+            )
 
         self.definition_scopes[-1].add(node.name)
+        self.callable_scopes[-1].add(node.name)
         self.definition_scopes.append(set())
         self.import_scopes.append(set())
+        self.callable_scopes.append(set())
         try:
             self.generic_visit(node)
         finally:
+            self.callable_scopes.pop()
             self.import_scopes.pop()
             self.definition_scopes.pop()
 
@@ -172,21 +182,30 @@ class PythonAnalyzer(ast.NodeVisitor):
                 )
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        if node.name in self.definition_scopes[-1]:
+        if node.name in self.callable_scopes[-1]:
             self.diagnostic(
                 node,
                 "WARNING",
                 f"Name '{node.name}' is defined more than once.",
             )
+        elif node.name in self.definition_scopes[-1]:
+            self.diagnostic(
+                node,
+                "WARNING",
+                f"Name '{node.name}' is rebound by a function definition.",
+            )
 
         self.definition_scopes[-1].add(node.name)
+        self.callable_scopes[-1].add(node.name)
         self._check_mutable_defaults(node)
         self._check_unreachable_statements(node.body)
         self.definition_scopes.append(set())
         self.import_scopes.append(set())
+        self.callable_scopes.append(set())
         try:
             self.generic_visit(node)
         finally:
+            self.callable_scopes.pop()
             self.import_scopes.pop()
             self.definition_scopes.pop()
 
