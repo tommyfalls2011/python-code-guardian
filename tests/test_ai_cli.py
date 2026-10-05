@@ -352,6 +352,8 @@ def test_cli_ai_repair_prioritizes_error_before_warning(
             "--ai-repair",
             "--ai-model",
             "test-model",
+            "--max-repairs",
+            "1",
         ],
     )
 
@@ -359,3 +361,213 @@ def test_cli_ai_repair_prioritizes_error_before_warning(
     capsys.readouterr()
 
     assert attempted == ["ERROR"]
+
+
+def test_cli_ai_repair_rescans_between_repairs(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    import codeguardian.cli as cli
+
+    target = tmp_path / "sample.py"
+    target.write_text(
+        "def example():\n"
+        "    first_missing\n"
+        "    second_missing\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    attempted_lines = []
+
+    def fake_evaluate(
+        *,
+        source,
+        diagnostic,
+        model,
+    ):
+        attempted_lines.append(diagnostic.line)
+
+        before = analyze_file(target).diagnostics
+
+        if "first_missing" in diagnostic.message:
+            assert diagnostic.line == 2
+            candidate = source.replace(
+                "    first_missing\n",
+                "",
+                1,
+            )
+            edit = AIEdit("delete", 2)
+        elif "second_missing" in diagnostic.message:
+            # The first deletion moved this from line 3 to line 2.
+            assert diagnostic.line == 2
+            candidate = source.replace(
+                "    second_missing\n",
+                "",
+                1,
+            )
+            edit = AIEdit("delete", 2)
+        else:
+            raise AssertionError(
+                f"unexpected diagnostic: {diagnostic.message}"
+            )
+
+        candidate_path = tmp_path / "candidate.py"
+        candidate_path.write_text(
+            candidate,
+            encoding="utf-8",
+        )
+
+        after = analyze_file(
+            candidate_path
+        ).diagnostics
+
+        # Transaction validation compares diagnostics from
+        # the real target path. Preserve those paths while
+        # using the freshly analyzed candidate diagnostics.
+        after = [
+            type(item)(
+                file=target,
+                line=item.line,
+                column=item.column,
+                severity=item.severity,
+                message=item.message,
+            )
+            for item in after
+        ]
+
+        return AIEditEvaluation(
+            accepted=True,
+            reason="safe",
+            edit=edit,
+            candidate_source=candidate,
+            before_diagnostics=before,
+            after_diagnostics=after,
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        fake_evaluate,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codeguardian",
+            str(target),
+            "--ai-repair",
+            "--ai-model",
+            "test-model",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert attempted_lines == [2, 2]
+    assert output.count("[AI REPAIRED]") == 2
+    assert "AI repairs applied: 2" in output
+    assert target.read_text(
+        encoding="utf-8"
+    ) == (
+        "def example():\n"
+        "    return 1\n"
+    )
+
+
+def test_cli_ai_repair_respects_max_repairs(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    import codeguardian.cli as cli
+
+    target = tmp_path / "sample.py"
+    target.write_text(
+        "def example():\n"
+        "    first_missing\n"
+        "    second_missing\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    calls = []
+
+    def fake_evaluate(
+        *,
+        source,
+        diagnostic,
+        model,
+    ):
+        calls.append(diagnostic.message)
+
+        before = analyze_file(target).diagnostics
+
+        candidate = source.replace(
+            "    first_missing\n",
+            "",
+            1,
+        )
+
+        candidate_path = tmp_path / "candidate.py"
+        candidate_path.write_text(
+            candidate,
+            encoding="utf-8",
+        )
+
+        after = [
+            type(item)(
+                file=target,
+                line=item.line,
+                column=item.column,
+                severity=item.severity,
+                message=item.message,
+            )
+            for item in analyze_file(
+                candidate_path
+            ).diagnostics
+        ]
+
+        return AIEditEvaluation(
+            accepted=True,
+            reason="safe",
+            edit=AIEdit("delete", 2),
+            candidate_source=candidate,
+            before_diagnostics=before,
+            after_diagnostics=after,
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        fake_evaluate,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codeguardian",
+            str(target),
+            "--ai-repair",
+            "--ai-model",
+            "test-model",
+            "--max-repairs",
+            "1",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 1
+    assert len(calls) == 1
+    assert output.count("[AI REPAIRED]") == 1
+    assert "AI repairs applied: 1" in output
+    assert "second_missing" in target.read_text(
+        encoding="utf-8"
+    )

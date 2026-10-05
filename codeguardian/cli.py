@@ -53,7 +53,7 @@ def main() -> int:
     parser.add_argument(
         "--ai-repair",
         action="store_true",
-        help="Use a local AI model for one bounded repair.",
+        help="Use a local AI model for bounded repairs.",
     )
 
     parser.add_argument(
@@ -265,128 +265,153 @@ def main() -> int:
         print(f"Model: {args.ai_model}")
         print()
 
-        applied = False
+        repairs_applied = 0
 
-        repair_diagnostics = sorted(
-            report.diagnostics,
-            key=lambda item: {
-                "ERROR": 0,
-                "WARNING": 1,
-            }.get(item.severity.upper(), 2),
-        )
-
-        for diagnostic in repair_diagnostics:
-            if diagnostic.severity.upper() not in {
-                "ERROR",
-                "WARNING",
-            }:
-                continue
-
-            source = diagnostic.file.read_text(
-                encoding="utf-8"
+        while (
+            report.total_count
+            and repairs_applied < args.max_repairs
+        ):
+            repair_diagnostics = sorted(
+                report.diagnostics,
+                key=lambda item: {
+                    "ERROR": 0,
+                    "WARNING": 1,
+                }.get(item.severity.upper(), 2),
             )
 
-            try:
-                if diagnostic.message.startswith(
-                    "Mutable default argument"
-                ):
-                    evaluation = evaluate_ai_edits(
-                        source=source,
-                        diagnostic=diagnostic,
-                        model=args.ai_model,
-                    )
-                else:
-                    evaluation = evaluate_ai_edit(
-                        source=source,
-                        diagnostic=diagnostic,
-                        model=args.ai_model,
-                    )
-            except (
-                OllamaError,
-                ValueError,
-                OSError,
-            ) as exc:
-                print(
-                    f"[AI REJECTED] {diagnostic.file}:"
-                    f"{diagnostic.line}:{diagnostic.column}"
-                )
-                print(f"    {exc}")
-                print()
-                continue
+            applied_this_pass = False
 
-            if not evaluation.accepted:
-                print(
-                    f"[AI REJECTED] {diagnostic.file}:"
-                    f"{diagnostic.line}:{diagnostic.column}"
-                )
-                print(f"    {evaluation.reason}")
-                print()
-                continue
-
-            transaction = apply_evaluated_ai_edit(
-                diagnostic.file,
-                evaluation,
-            )
-
-            if not transaction.applied:
-                print(
-                    f"[AI REJECTED] {diagnostic.file}:"
-                    f"{diagnostic.line}:{diagnostic.column}"
-                )
-                print(f"    {transaction.reason}")
-                print()
-                continue
-
-            print(
-                f"[AI REPAIRED] {diagnostic.file}:"
-                f"{diagnostic.line}:{diagnostic.column}"
-            )
-            if hasattr(evaluation, "edits"):
-                for edit in evaluation.edits:
-                    print(
-                        f"    Operation: {edit.operation}"
-                    )
-                    print(f"    Line: {edit.line}")
-            else:
-                print(
-                    f"    Operation: "
-                    f"{evaluation.edit.operation}"
-                )
-                print(
-                    f"    Line: {evaluation.edit.line}"
-                )
-            if transaction.backup is not None:
-                print(
-                    f"    Backup: {transaction.backup}"
-                )
-            print()
-
-            applied = True
-            break
-
-        if applied:
-            diagnostics = []
-
-            for current_path in files:
-                syntax_diagnostics = scanner.check_file(
-                    current_path
-                )
-
-                if syntax_diagnostics:
-                    diagnostics.extend(
-                        syntax_diagnostics
-                    )
+            for diagnostic in repair_diagnostics:
+                if diagnostic.severity.upper() not in {
+                    "ERROR",
+                    "WARNING",
+                }:
                     continue
 
-                diagnostics.extend(
-                    analyze_file(
-                        current_path
-                    ).diagnostics
+                source = diagnostic.file.read_text(
+                    encoding="utf-8"
                 )
 
-            report = Report(diagnostics)
-        else:
+                try:
+                    if diagnostic.message.startswith(
+                        "Mutable default argument"
+                    ):
+                        evaluation = evaluate_ai_edits(
+                            source=source,
+                            diagnostic=diagnostic,
+                            model=args.ai_model,
+                        )
+                    else:
+                        evaluation = evaluate_ai_edit(
+                            source=source,
+                            diagnostic=diagnostic,
+                            model=args.ai_model,
+                        )
+                except (
+                    OllamaError,
+                    ValueError,
+                    OSError,
+                ) as exc:
+                    print(
+                        f"[AI REJECTED] {diagnostic.file}:"
+                        f"{diagnostic.line}:"
+                        f"{diagnostic.column}"
+                    )
+                    print(f"    {exc}")
+                    print()
+                    continue
+
+                if not evaluation.accepted:
+                    print(
+                        f"[AI REJECTED] {diagnostic.file}:"
+                        f"{diagnostic.line}:"
+                        f"{diagnostic.column}"
+                    )
+                    print(f"    {evaluation.reason}")
+                    print()
+                    continue
+
+                transaction = apply_evaluated_ai_edit(
+                    diagnostic.file,
+                    evaluation,
+                )
+
+                if not transaction.applied:
+                    print(
+                        f"[AI REJECTED] {diagnostic.file}:"
+                        f"{diagnostic.line}:"
+                        f"{diagnostic.column}"
+                    )
+                    print(f"    {transaction.reason}")
+                    print()
+                    continue
+
+                print(
+                    f"[AI REPAIRED] {diagnostic.file}:"
+                    f"{diagnostic.line}:"
+                    f"{diagnostic.column}"
+                )
+
+                if hasattr(evaluation, "edits"):
+                    for edit in evaluation.edits:
+                        print(
+                            f"    Operation: {edit.operation}"
+                        )
+                        print(f"    Line: {edit.line}")
+                else:
+                    print(
+                        f"    Operation: "
+                        f"{evaluation.edit.operation}"
+                    )
+                    print(
+                        f"    Line: {evaluation.edit.line}"
+                    )
+
+                if transaction.backup is not None:
+                    print(
+                        f"    Backup: {transaction.backup}"
+                    )
+
+                print()
+
+                repairs_applied += 1
+                applied_this_pass = True
+
+                diagnostics = []
+
+                for current_path in files:
+                    syntax_diagnostics = scanner.check_file(
+                        current_path
+                    )
+
+                    if syntax_diagnostics:
+                        diagnostics.extend(
+                            syntax_diagnostics
+                        )
+                        continue
+
+                    diagnostics.extend(
+                        analyze_file(
+                            current_path
+                        ).diagnostics
+                    )
+
+                report = Report(diagnostics)
+
+                # Diagnostics and line numbers may have changed.
+                # Restart from the freshly analyzed report.
+                break
+
+            if not applied_this_pass:
+                break
+
+        if repairs_applied == 0:
             print("AI repairs applied: 0")
+            print()
+        else:
+            print(
+                f"AI repairs applied: {repairs_applied}"
+            )
             print()
 
     elif args.repair and report.total_count:
