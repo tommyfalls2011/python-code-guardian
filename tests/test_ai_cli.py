@@ -571,3 +571,129 @@ def test_cli_ai_repair_respects_max_repairs(
     assert "second_missing" in target.read_text(
         encoding="utf-8"
     )
+
+
+def test_cli_ai_repair_does_not_retry_unchanged_rejection(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    import codeguardian.cli as cli
+
+    target = tmp_path / "sample.py"
+    target.write_text(
+        "import os\n"
+        "import os\n"
+        "\n"
+        "def example():\n"
+        "    definitely_not_defined\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    attempts = []
+
+    def fake_evaluate(
+        *,
+        source,
+        diagnostic,
+        model,
+    ):
+        attempts.append(
+            (
+                diagnostic.message,
+                diagnostic.line,
+            )
+        )
+
+        if "Undefined name" in diagnostic.message:
+            candidate = source.replace(
+                "    definitely_not_defined\n",
+                "",
+                1,
+            )
+
+            candidate_path = tmp_path / "candidate.py"
+            candidate_path.write_text(
+                candidate,
+                encoding="utf-8",
+            )
+
+            after = [
+                type(item)(
+                    file=target,
+                    line=item.line,
+                    column=item.column,
+                    severity=item.severity,
+                    message=item.message,
+                )
+                for item in analyze_file(
+                    candidate_path
+                ).diagnostics
+            ]
+
+            return AIEditEvaluation(
+                accepted=True,
+                reason="safe",
+                edit=AIEdit("delete", 5),
+                candidate_source=candidate,
+                before_diagnostics=analyze_file(
+                    target
+                ).diagnostics,
+                after_diagnostics=after,
+            )
+
+        return AIEditEvaluation(
+            accepted=False,
+            reason="target diagnostic was not repaired",
+            edit=AIEdit(
+                "replace",
+                diagnostic.line,
+                source.splitlines()[
+                    diagnostic.line - 1
+                ],
+            ),
+            candidate_source=None,
+            before_diagnostics=analyze_file(
+                target
+            ).diagnostics,
+            after_diagnostics=analyze_file(
+                target
+            ).diagnostics,
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        fake_evaluate,
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codeguardian",
+            str(target),
+            "--ai-repair",
+            "--ai-model",
+            "test-model",
+            "--max-repairs",
+            "3",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    duplicate_attempts = [
+        item
+        for item in attempts
+        if "Duplicate import" in item[0]
+    ]
+
+    assert result == 0
+    assert len(duplicate_attempts) == 1
+    assert "[AI REJECTED]" in output
+    assert "definitely_not_defined" not in (
+        target.read_text(encoding="utf-8")
+    )

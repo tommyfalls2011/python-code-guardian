@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -152,6 +153,117 @@ def _diagnostic_key(diagnostic: Diagnostic) -> tuple[str, str]:
     )
 
 
+def _constant_false_body_statements(
+    source: str,
+    line: int,
+) -> list[str] | None:
+    """Return statements belonging to the targeted if False body."""
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+
+        if not (
+            isinstance(node.test, ast.Constant)
+            and node.test.value is False
+        ):
+            continue
+
+        end_line = getattr(
+            node,
+            "end_lineno",
+            node.lineno,
+        )
+
+        if not (
+            node.lineno <= line <= end_line
+        ):
+            continue
+
+        return [
+            ast.dump(
+                statement,
+                annotate_fields=True,
+                include_attributes=False,
+            )
+            for statement in node.body
+        ]
+
+    return None
+
+
+def _statement_exists_outside_false_block(
+    source: str,
+    statement_dump: str,
+) -> bool:
+    tree = ast.parse(source)
+    parents: dict[ast.AST, ast.AST] = {}
+
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[child] = parent
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.stmt):
+            continue
+
+        current_dump = ast.dump(
+            node,
+            annotate_fields=True,
+            include_attributes=False,
+        )
+
+        if current_dump != statement_dump:
+            continue
+
+        current: ast.AST = node
+        guarded = False
+
+        while current in parents:
+            current = parents[current]
+
+            if not isinstance(current, ast.If):
+                continue
+
+            if (
+                isinstance(current.test, ast.Constant)
+                and current.test.value is False
+            ):
+                guarded = True
+                break
+
+        if not guarded:
+            return True
+
+    return False
+
+
+def _exposes_if_false_body(
+    source: str,
+    candidate: str,
+    diagnostic: Diagnostic,
+) -> bool:
+    if "if False" not in diagnostic.message:
+        return False
+
+    body = _constant_false_body_statements(
+        source,
+        diagnostic.line,
+    )
+
+    if body is None:
+        return False
+
+    return any(
+        _statement_exists_outside_false_block(
+            candidate,
+            statement,
+        )
+        for statement in body
+    )
+
+
 def _analyze_source(source: str) -> list[Diagnostic]:
     with tempfile.TemporaryDirectory(
         prefix="codeguardian-ai-"
@@ -239,6 +351,23 @@ def evaluate_ai_edit(
         )
 
     after = _analyze_source(candidate)
+
+    if _exposes_if_false_body(
+        source,
+        candidate,
+        diagnostic,
+    ):
+        return AIEditEvaluation(
+            accepted=False,
+            reason=(
+                "candidate exposes code previously guarded "
+                "by 'if False'"
+            ),
+            edit=edit,
+            candidate_source=None,
+            before_diagnostics=before,
+            after_diagnostics=after,
+        )
 
     before_errors = {
         _diagnostic_key(item)
@@ -414,6 +543,23 @@ def evaluate_ai_edits(
         )
 
     after = _analyze_source(candidate)
+
+    if _exposes_if_false_body(
+        source,
+        candidate,
+        diagnostic,
+    ):
+        return AIEditsEvaluation(
+            accepted=False,
+            reason=(
+                "candidate exposes code previously guarded "
+                "by 'if False'"
+            ),
+            edits=edits,
+            candidate_source=None,
+            before_diagnostics=before,
+            after_diagnostics=after,
+        )
 
     before_errors = {
         _diagnostic_key(item)

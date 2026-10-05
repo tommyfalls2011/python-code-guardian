@@ -266,6 +266,7 @@ def main() -> int:
         print()
 
         repairs_applied = 0
+        rejected_attempts = set()
 
         while (
             report.total_count
@@ -291,6 +292,18 @@ def main() -> int:
                 source = diagnostic.file.read_text(
                     encoding="utf-8"
                 )
+
+                rejection_key = (
+                    diagnostic.file,
+                    diagnostic.line,
+                    diagnostic.column,
+                    diagnostic.severity.upper(),
+                    diagnostic.message,
+                    source,
+                )
+
+                if rejection_key in rejected_attempts:
+                    continue
 
                 try:
                     if diagnostic.message.startswith(
@@ -319,6 +332,9 @@ def main() -> int:
                     )
                     print(f"    {exc}")
                     print()
+                    rejected_attempts.add(
+                        rejection_key
+                    )
                     continue
 
                 if not evaluation.accepted:
@@ -329,6 +345,9 @@ def main() -> int:
                     )
                     print(f"    {evaluation.reason}")
                     print()
+                    rejected_attempts.add(
+                        rejection_key
+                    )
                     continue
 
                 transaction = apply_evaluated_ai_edit(
@@ -344,6 +363,9 @@ def main() -> int:
                     )
                     print(f"    {transaction.reason}")
                     print()
+                    rejected_attempts.add(
+                        rejection_key
+                    )
                     continue
 
                 print(

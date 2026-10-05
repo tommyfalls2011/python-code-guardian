@@ -501,3 +501,70 @@ def test_engine_multi_edit_rejects_empty_transaction(tmp_path):
     assert result.candidate_source is None
     assert "empty" in result.reason
 
+
+
+def test_engine_rejects_exposing_if_false_body(tmp_path):
+    source = (
+        "def example(items=None):\n"
+        "    if items is None:\n"
+        "        items = []\n"
+        "    if False:\n"
+        "        print('unreachable')\n"
+        "    return len(items)\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "if False",
+    )
+
+    def provider(**kwargs):
+        return AIEdit("delete", 4)
+
+    result = evaluate_ai_edit(
+        source=source,
+        diagnostic=diagnostic,
+        model="test-model",
+        provider=provider,
+    )
+
+    assert result.accepted is False
+    assert result.candidate_source is None
+    assert "exposes code" in result.reason
+
+
+def test_engine_allows_deleting_entire_if_false_block(
+    tmp_path,
+):
+    source = (
+        "def example():\n"
+        "    if False:\n"
+        "        print('unreachable')\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "if False",
+    )
+
+    def provider(**kwargs):
+        return AIEdit(
+            "replace",
+            2,
+            "    return 1",
+        )
+
+    result = evaluate_ai_edit(
+        source=source,
+        diagnostic=diagnostic,
+        model="test-model",
+        provider=provider,
+    )
+
+    # A single-line replacement cannot safely remove both
+    # the guard and its indented body, so syntax validation
+    # must reject this candidate rather than expose the body.
+    assert result.accepted is False
