@@ -277,3 +277,85 @@ def test_cli_ai_repair_routes_mutable_default_to_multi_edit(
     assert target.read_text(
         encoding="utf-8"
     ) == candidate
+
+
+def test_cli_ai_repair_prioritizes_error_before_warning(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    import codeguardian.cli as cli
+
+    target = tmp_path / "sample.py"
+    target.write_text(
+        "import os\n"
+        "import os\n"
+        "def example():\n"
+        "    definitely_not_defined\n",
+        encoding="utf-8",
+    )
+
+    attempted = []
+
+    def fake_evaluate(
+        *,
+        source,
+        diagnostic,
+        model,
+    ):
+        attempted.append(diagnostic.severity.upper())
+
+        assert diagnostic.severity.upper() == "ERROR"
+
+        candidate = (
+            "import os\n"
+            "import os\n"
+            "def example():\n"
+            "    return 1\n"
+        )
+
+        candidate_path = tmp_path / "candidate.py"
+        candidate_path.write_text(
+            candidate,
+            encoding="utf-8",
+        )
+
+        return AIEditEvaluation(
+            accepted=True,
+            reason="safe",
+            edit=AIEdit(
+                "replace",
+                4,
+                "    return 1",
+            ),
+            candidate_source=candidate,
+            before_diagnostics=analyze_file(
+                target
+            ).diagnostics,
+            after_diagnostics=analyze_file(
+                candidate_path
+            ).diagnostics,
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        fake_evaluate,
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codeguardian",
+            str(target),
+            "--ai-repair",
+            "--ai-model",
+            "test-model",
+        ],
+    )
+
+    cli.main()
+    capsys.readouterr()
+
+    assert attempted == ["ERROR"]

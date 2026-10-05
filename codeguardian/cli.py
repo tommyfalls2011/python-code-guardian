@@ -267,7 +267,15 @@ def main() -> int:
 
         applied = False
 
-        for diagnostic in list(report.diagnostics):
+        repair_diagnostics = sorted(
+            report.diagnostics,
+            key=lambda item: {
+                "ERROR": 0,
+                "WARNING": 1,
+            }.get(item.severity.upper(), 2),
+        )
+
+        for diagnostic in repair_diagnostics:
             if diagnostic.severity.upper() not in {
                 "ERROR",
                 "WARNING",
