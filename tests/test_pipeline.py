@@ -450,3 +450,47 @@ def test_plain_pipeline_preserves_specific_except(tmp_path):
 
     assert result.repairs_applied == 0
     assert path.read_text(encoding="utf-8") == original
+
+
+def test_plain_repair_uses_shared_duplicate_import_dispatcher(tmp_path):
+    from codeguardian.pipeline import GuardianPipeline
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "import os\nimport os\nprint(os.name)\n",
+        encoding="utf-8",
+    )
+
+    result = GuardianPipeline(create_backups=False).repair(path)
+
+    assert result.repairs_applied == 1
+    assert path.read_text(encoding="utf-8") == (
+        "import os\nprint(os.name)\n"
+    )
+
+
+def test_plain_repair_shared_dispatcher_does_not_call_ai(
+    tmp_path,
+    monkeypatch,
+):
+    import codeguardian.ai.ollama as ollama
+    from codeguardian.pipeline import GuardianPipeline
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("AI provider must not be called")
+
+    monkeypatch.setattr(ollama, "request_ai_edit", forbidden)
+    monkeypatch.setattr(ollama, "request_ai_edits", forbidden)
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "import os\nimport os\nprint(os.name)\n",
+        encoding="utf-8",
+    )
+
+    result = GuardianPipeline(create_backups=False).repair(path)
+
+    assert result.repairs_applied == 1
+    assert "import os\nimport os" not in path.read_text(
+        encoding="utf-8"
+    )

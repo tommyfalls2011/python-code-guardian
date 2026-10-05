@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .audit import RepairAudit
+from .ai.edit import apply_ai_edits
+from .ai.engine import deterministic_repair_edits
+from .repair import create_backup
 from .candidate import build_candidate
 from .confidence import RepairConfidence
 from .history import RepairHistory
@@ -156,6 +159,119 @@ class GuardianPipeline:
             plan = self.planner.plan(diagnostic)
 
             if plan is None:
+                source = diagnostic.file.read_text(
+                    encoding="utf-8"
+                )
+                deterministic_edits = deterministic_repair_edits(
+                    source,
+                    diagnostic,
+                )
+
+                if deterministic_edits is None:
+                    continue
+
+                try:
+                    candidate_source = apply_ai_edits(
+                        source,
+                        deterministic_edits,
+                        max_edits=3,
+                    )
+                except ValueError:
+                    continue
+
+                candidate_validation = self.validator.validate_source(
+                    candidate_source,
+                    filename=str(diagnostic.file),
+                )
+                if not candidate_validation.passed:
+                    continue
+
+                before_errors = {
+                    (item.line, item.column, item.severity, item.message)
+                    for item in report.diagnostics
+                    if item.file.resolve() == diagnostic.file.resolve()
+                    and item.severity.upper() == "ERROR"
+                }
+
+                candidate_path = diagnostic.file
+                backup = (
+                    create_backup(candidate_path)
+                    if self.repair_manager.create_backups
+                    else None
+                )
+
+                candidate_path.write_text(
+                    candidate_source,
+                    encoding="utf-8",
+                )
+
+                final_diagnostics = self._analyze(candidate_path)
+                after_errors = {
+                    (item.line, item.column, item.severity, item.message)
+                    for item in final_diagnostics
+                    if item.severity.upper() == "ERROR"
+                }
+
+                if after_errors - before_errors:
+                    self._rollback(
+                        candidate_path,
+                        source,
+                        backup,
+                    )
+                    continue
+
+                if self.run_tests:
+                    test_result = self.test_runner.run(
+                        self._test_root(path)
+                    )
+                    if not test_result.passed:
+                        self._rollback(
+                            candidate_path,
+                            source,
+                            backup,
+                        )
+                        continue
+
+                repairs_applied += 1
+                reason = (
+                    "Deterministic repair: "
+                    f"{diagnostic.message}"
+                )
+                repairs.append(
+                    AppliedRepair(
+                        file=diagnostic.file,
+                        line=diagnostic.line,
+                        column=diagnostic.column,
+                        reason=reason,
+                        backup=backup,
+                    )
+                )
+
+                history_path = (
+                    path / ".guardian-history.json"
+                    if path.resolve().is_dir()
+                    else path.parent / ".guardian-history.json"
+                )
+                RepairHistory(history_path).append(
+                    file=str(diagnostic.file),
+                    line=diagnostic.line,
+                    column=diagnostic.column,
+                    reason=reason,
+                    backup=(
+                        None if backup is None else str(backup)
+                    ),
+                    confidence=RepairConfidence.HIGH,
+                )
+                RepairAudit(self._audit_path(path)).append(
+                    status="applied",
+                    file=str(diagnostic.file),
+                    line=diagnostic.line,
+                    column=diagnostic.column,
+                    reason=reason,
+                    confidence=RepairConfidence.HIGH,
+                    stage="deterministic",
+                    details="Bounded deterministic edit transaction",
+                )
                 continue
 
             if not self._confidence_allows(plan.repair.confidence):
