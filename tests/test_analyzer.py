@@ -1099,3 +1099,114 @@ def test_analyzer_does_not_report_file_as_undefined(tmp_path):
         diagnostic.message == "Undefined name: '__file__'"
         for diagnostic in result.diagnostics
     )
+
+
+
+def test_property_setter_is_not_duplicate_definition(tmp_path):
+    path = tmp_path / "property_setter.py"
+    path.write_text(
+        "class Example:\n"
+        "    @property\n"
+        "    def message(self):\n"
+        "        return self._message\n"
+        "\n"
+        "    @message.setter\n"
+        "    def message(self, value):\n"
+        "        self._message = value\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert not any(
+        d.message == "Name 'message' is defined more than once."
+        for d in result.diagnostics
+    )
+
+
+def test_property_deleter_is_not_duplicate_definition(tmp_path):
+    path = tmp_path / "property_deleter.py"
+    path.write_text(
+        "class Example:\n"
+        "    @property\n"
+        "    def value(self):\n"
+        "        return self._value\n"
+        "\n"
+        "    @value.deleter\n"
+        "    def value(self):\n"
+        "        del self._value\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert not any(
+        d.message == "Name 'value' is defined more than once."
+        for d in result.diagnostics
+    )
+
+
+def test_real_duplicate_method_is_still_reported(tmp_path):
+    path = tmp_path / "duplicate_method.py"
+    path.write_text(
+        "class Example:\n"
+        "    def run(self):\n"
+        "        return 1\n"
+        "\n"
+        "    def run(self):\n"
+        "        return 2\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert any(
+        d.message == "Name 'run' is defined more than once."
+        for d in result.diagnostics
+    )
+
+
+def test_file_level_flake8_noqa_suppresses_unused_imports(tmp_path):
+    path = tmp_path / "__init__.py"
+    path.write_text(
+        "# flake8: noqa\n"
+        "from .actor import Audio\n"
+        "from .constants import PlaybackState\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert not any(
+        d.message.startswith("Unused import:")
+        for d in result.diagnostics
+    )
+
+
+def test_normal_file_still_reports_unused_import(tmp_path):
+    path = tmp_path / "normal.py"
+    path.write_text("import fractions\n", encoding="utf-8")
+
+    result = analyze_file(path)
+
+    assert any(
+        d.message == "Unused import: 'fractions'"
+        for d in result.diagnostics
+    )
+
+
+def test_inline_noqa_does_not_disable_file_unused_import_analysis(
+    tmp_path,
+):
+    path = tmp_path / "inline_noqa.py"
+    path.write_text(
+        "import fractions  # noqa\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert any(
+        d.message == "Unused import: 'fractions'"
+        for d in result.diagnostics
+    )

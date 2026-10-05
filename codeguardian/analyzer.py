@@ -189,14 +189,39 @@ class PythonAnalyzer(ast.NodeVisitor):
                     "the mutable value inside the function.",
                 )
 
+    def _is_property_accessor(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> bool:
+        """Return True for @name.setter and @name.deleter accessors."""
+        for decorator in node.decorator_list:
+            if (
+                isinstance(decorator, ast.Attribute)
+                and decorator.attr in {"setter", "deleter"}
+                and isinstance(decorator.value, ast.Name)
+                and decorator.value.id == node.name
+            ):
+                return True
+
+        return False
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        if node.name in self.callable_scopes[-1]:
+        is_property_accessor = self._is_property_accessor(node)
+
+        if (
+            node.name in self.callable_scopes[-1]
+            and not is_property_accessor
+        ):
             self.diagnostic(
                 node,
                 "WARNING",
                 f"Name '{node.name}' is defined more than once.",
             )
-        elif node.name in self.definition_scopes[-1]:
+        elif (
+            node.name in self.definition_scopes[-1]
+            and node.name not in self.callable_scopes[-1]
+            and not is_property_accessor
+        ):
             self.diagnostic(
                 node,
                 "WARNING",
@@ -457,6 +482,11 @@ def analyze_file(path: Path) -> AnalysisResult:
 
     used_names: set[str] = set()
 
+    file_level_noqa = any(
+        line.strip().lower() == "# flake8: noqa"
+        for line in source.splitlines()[:5]
+    )
+
     def collect_used(current_scope) -> None:
         used_names.update(current_scope.used)
 
@@ -499,17 +529,18 @@ def analyze_file(path: Path) -> AnalysisResult:
 
     used_names.update(exported_names)
 
-    for name, line in analyzer.imports.items():
-        if name not in used_names:
-            analyzer.diagnostics.append(
-                Diagnostic(
-                    file=path,
-                    line=line,
-                    column=1,
-                    severity="WARNING",
-                    message=f"Unused import: '{name}'",
+    if not file_level_noqa:
+        for name, line in analyzer.imports.items():
+            if name not in used_names:
+                analyzer.diagnostics.append(
+                    Diagnostic(
+                        file=path,
+                        line=line,
+                        column=1,
+                        severity="WARNING",
+                        message=f"Unused import: '{name}'",
+                    )
                 )
-            )
 
     for name, line, column in find_unused_definitions(scope):
         if name not in analyzer.imports:
