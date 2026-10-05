@@ -854,3 +854,19 @@ def test_real_duplicate_function_still_detected(tmp_path):
         "Name 'run' is defined more than once." in d.message
         for d in result.diagnostics
     )
+
+
+def test_future_annotations_import_is_not_reported_unused(tmp_path):
+    path = tmp_path / "future_annotations.py"
+    path.write_text(
+        "from __future__ import annotations\n"
+        "\n"
+        "def identity(value: str) -> str:\n"
+        "    return value\n",
+        encoding="utf-8",
+    )
+    result = analyze_file(path)
+    assert not any(
+        diagnostic.message == "Unused import: 'annotations'"
+        for diagnostic in result.diagnostics
+    )

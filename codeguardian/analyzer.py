@@ -62,6 +62,10 @@ class PythonAnalyzer(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.module == "__future__":
+            self.generic_visit(node)
+            return
+
         for alias in node.names:
             if alias.name == "*":
                 self.diagnostic(
