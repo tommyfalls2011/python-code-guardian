@@ -955,51 +955,34 @@ def test_cli_unused_literal_respects_max_repairs(
     assert "Unused definition:" in output
 
 
-def test_cli_unused_import_uses_deterministic_repair(
+def test_cli_safe_mode_does_not_auto_delete_unused_import(
     tmp_path,
     monkeypatch,
     capsys,
 ):
     from codeguardian import cli
 
-    path = tmp_path / "example.py"
+    path = tmp_path / "side_effect_plugin.py"
     path.write_text(
-        "import os\n"
+        "import side_effect_plugin\n"
         "\n"
         "value = 1\n",
         encoding="utf-8",
     )
 
-    real_evaluate = cli.evaluate_ai_edit
-
-    def guarded_evaluate(*args, **kwargs):
-        provider = kwargs.get("provider")
-
-        if provider is None:
-            raise AssertionError(
-                "Ollama evaluator must not be used "
-                "for safe unused import"
-            )
-
-        return real_evaluate(*args, **kwargs)
-
-    def forbidden_multi(*args, **kwargs):
-        raise AssertionError(
-            "multi-edit AI must not be used "
-            "for safe unused import"
-        )
+    def rejected_ai(*args, **kwargs):
+        raise ValueError("AI unavailable for safety regression")
 
     monkeypatch.setattr(
         cli,
         "evaluate_ai_edit",
-        guarded_evaluate,
+        rejected_ai,
     )
     monkeypatch.setattr(
         cli,
         "evaluate_ai_edits",
-        forbidden_multi,
+        rejected_ai,
     )
-
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -1008,6 +991,8 @@ def test_cli_unused_import_uses_deterministic_repair(
             "--ai-repair",
             "--max-repairs",
             "1",
+            "--policy",
+            "safe",
         ],
     )
 
@@ -1016,11 +1001,11 @@ def test_cli_unused_import_uses_deterministic_repair(
     assert result == 0
 
     source = path.read_text(encoding="utf-8")
-    assert "import os" not in source
+    assert "import side_effect_plugin" in source
     assert "value = 1" in source
 
     output = capsys.readouterr().out
-    assert "AI repairs applied: 1" in output
+    assert "AI repairs applied: 0" in output
 
 
 def test_cli_unreachable_code_uses_deterministic_repair(
