@@ -394,3 +394,59 @@ def test_cli_version(capsys):
 
     output = capsys.readouterr().out
     assert "codeguardian 1.0.0" in output
+
+
+def test_cli_plain_repair_repairs_bare_except(tmp_path, monkeypatch, capsys):
+    from codeguardian.cli import main
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "try:\n"
+        "    raise ValueError(1)\n"
+        "except:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["codeguardian", str(path), "--repair"],
+    )
+
+    exit_code = main()
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "except Exception:" in path.read_text(encoding="utf-8")
+    assert "Repairs applied: 1" in output
+
+
+def test_plain_repair_safely_skips_inline_bare_except(tmp_path):
+    from codeguardian.pipeline import GuardianPipeline
+
+    path = tmp_path / "example.py"
+    original = "try:\n    pass\nexcept: pass\n"
+    path.write_text(original, encoding="utf-8")
+
+    result = GuardianPipeline(create_backups=False).repair(path)
+
+    assert result.repairs_applied == 0
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_plain_pipeline_preserves_specific_except(tmp_path):
+    from codeguardian.pipeline import GuardianPipeline
+
+    path = tmp_path / "example.py"
+    original = (
+        "try:\\n"
+        "    raise ValueError(1)\\n"
+        "except ValueError:\\n"
+        "    pass\\n"
+    )
+    path.write_text(original, encoding="utf-8")
+
+    result = GuardianPipeline(create_backups=False).repair(path)
+
+    assert result.repairs_applied == 0
+    assert path.read_text(encoding="utf-8") == original

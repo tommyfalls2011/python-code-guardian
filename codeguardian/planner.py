@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .plan import RepairPlan
+from .repair import Repair
 from .repair_strategies.dictionary import missing_dict_comma
 from .repair_strategies.delimiters import unclosed_delimiter, unmatched_closing_delimiter
 from .repair_strategies.indentation import unindent_mismatch, expected_indented_block, unexpected_indent
@@ -68,6 +69,30 @@ class RepairPlanner:
             ),
             self._expected_indented_block,
         )
+        self.registry.register(
+            "Bare except catches BaseException; catch a specific exception type instead.",
+            self._bare_except,
+        )
+
+    def _bare_except(self, diagnostic: Diagnostic) -> RepairPlan:
+        line = diagnostic.file.read_text(encoding="utf-8").splitlines()[diagnostic.line - 1]
+        indentation = line[: len(line) - len(line.lstrip())]
+        if line.strip() != "except:":
+            return None
+        replacement = f"{indentation}except Exception:"
+        repair = Repair(
+            file=diagnostic.file,
+            start_line=diagnostic.line,
+            start_column=1,
+            end_line=diagnostic.line,
+            end_column=len(line) + 1,
+            replacement=replacement,
+            reason="Replace bare except with except Exception",
+        )
+        try:
+            return RepairPlan(diagnostic=diagnostic, repair=repair)
+        except TypeError:
+            return RepairPlan(repair=repair)
 
     def plan(self, diagnostic: Diagnostic) -> RepairPlan | None:
         """Create a repair plan using the registered strategies."""
