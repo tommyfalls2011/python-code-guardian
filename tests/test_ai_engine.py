@@ -821,3 +821,184 @@ def test_deterministic_unused_definition_rejects_unpacking(
         )
         is None
     )
+
+
+def test_deterministic_unused_import_deletes_simple_import(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_import_edit,
+    )
+
+    source = (
+        "import os\n"
+        "\n"
+        "value = 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused import: 'os'",
+    )
+
+    edit = deterministic_unused_import_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 1
+
+
+def test_deterministic_unused_import_deletes_simple_from_import(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_import_edit,
+    )
+
+    source = (
+        "from pathlib import Path\n"
+        "\n"
+        "value = 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused import: 'Path'",
+    )
+
+    edit = deterministic_unused_import_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 1
+
+
+def test_deterministic_unused_import_supports_alias(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_import_edit,
+    )
+
+    source = (
+        "import os as operating_system\n"
+        "\n"
+        "value = 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused import: 'operating_system'",
+    )
+
+    edit = deterministic_unused_import_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 1
+
+
+def test_deterministic_unused_import_rejects_mixed_import(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_import_edit,
+    )
+
+    source = (
+        "import os, sys\n"
+        "\n"
+        "print(sys.version)\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused import: 'os'",
+    )
+
+    assert (
+        deterministic_unused_import_edit(
+            source,
+            diagnostic,
+        )
+        is None
+    )
+
+
+def test_deterministic_unused_import_rejects_mixed_from_import(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_import_edit,
+    )
+
+    source = (
+        "from pathlib import Path, PurePath\n"
+        "\n"
+        "print(PurePath('.'))\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused import: 'Path'",
+    )
+
+    assert (
+        deterministic_unused_import_edit(
+            source,
+            diagnostic,
+        )
+        is None
+    )
+
+
+def test_deterministic_unused_import_not_offered_for_all_reexport(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_import_edit,
+    )
+    from codeguardian.analyzer import analyze_file
+
+    path = tmp_path / "exports.py"
+    source = (
+        "from pathlib import Path\n"
+        "__all__ = ['Path']\n"
+    )
+    path.write_text(source, encoding="utf-8")
+
+    diagnostics = analyze_file(path).diagnostics
+
+    unused = [
+        item
+        for item in diagnostics
+        if item.message == "Unused import: 'Path'"
+    ]
+
+    assert unused == []
+
+    assert deterministic_unused_import_edit(
+        source,
+        type(
+            "FakeDiagnostic",
+            (),
+            {
+                "message": "Unused import: 'Path'",
+                "line": 2,
+            },
+        )(),
+    ) is None

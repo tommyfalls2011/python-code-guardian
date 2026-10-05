@@ -9,6 +9,7 @@ from .ai.engine import (
     apply_evaluated_ai_edit,
     deterministic_duplicate_import_edit,
     deterministic_unused_definition_edit,
+    deterministic_unused_import_edit,
     evaluate_ai_edit,
     evaluate_ai_edits,
 )
@@ -318,6 +319,14 @@ def main() -> int:
                     if deterministic_edit is None:
                         deterministic_edit = (
                             deterministic_unused_definition_edit(
+                                source,
+                                diagnostic,
+                            )
+                        )
+
+                    if deterministic_edit is None:
+                        deterministic_edit = (
+                            deterministic_unused_import_edit(
                                 source,
                                 diagnostic,
                             )

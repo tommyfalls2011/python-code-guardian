@@ -953,3 +953,71 @@ def test_cli_unused_literal_respects_max_repairs(
     output = capsys.readouterr().out
     assert "AI repairs applied: 1" in output
     assert "Unused definition:" in output
+
+
+def test_cli_unused_import_uses_deterministic_repair(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "import os\n"
+        "\n"
+        "value = 1\n",
+        encoding="utf-8",
+    )
+
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        provider = kwargs.get("provider")
+
+        if provider is None:
+            raise AssertionError(
+                "Ollama evaluator must not be used "
+                "for safe unused import"
+            )
+
+        return real_evaluate(*args, **kwargs)
+
+    def forbidden_multi(*args, **kwargs):
+        raise AssertionError(
+            "multi-edit AI must not be used "
+            "for safe unused import"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_multi,
+    )
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--max-repairs",
+            "1",
+        ],
+    )
+
+    result = cli.main()
+
+    assert result == 0
+
+    source = path.read_text(encoding="utf-8")
+    assert "import os" not in source
+    assert "value = 1" in source
+
+    output = capsys.readouterr().out
+    assert "AI repairs applied: 1" in output

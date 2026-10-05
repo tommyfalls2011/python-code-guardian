@@ -347,6 +347,106 @@ def deterministic_duplicate_import_edit(
 
 
 
+
+def deterministic_unused_import_edit(
+    source: str,
+    diagnostic: Diagnostic,
+) -> AIEdit | None:
+    """Delete a standalone single-name import reported unused."""
+    prefix = "Unused import: '"
+
+    if not (
+        diagnostic.message.startswith(prefix)
+        and diagnostic.message.endswith("'")
+    ):
+        return None
+
+    binding = diagnostic.message[len(prefix):-1]
+
+    if not binding.isidentifier():
+        return None
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+
+    target: ast.Import | ast.ImportFrom | None = None
+
+    for node in ast.walk(tree):
+        if not isinstance(
+            node,
+            (ast.Import, ast.ImportFrom),
+        ):
+            continue
+
+        if node.lineno != diagnostic.line:
+            continue
+
+        target = node
+        break
+
+    if target is None:
+        return None
+
+    if len(target.names) != 1:
+        return None
+
+    if getattr(target, "end_lineno", target.lineno) != target.lineno:
+        return None
+
+    alias = target.names[0]
+
+    if isinstance(target, ast.Import):
+        actual_binding = (
+            alias.asname
+            or alias.name.split(".")[0]
+        )
+    else:
+        if target.module == "__future__":
+            return None
+
+        if alias.name == "*":
+            return None
+
+        actual_binding = alias.asname or alias.name
+
+    if actual_binding != binding:
+        return None
+
+    lines = source.splitlines()
+
+    if not (
+        1 <= diagnostic.line <= len(lines)
+    ):
+        return None
+
+    line = lines[diagnostic.line - 1]
+
+    try:
+        line_tree = ast.parse(line.lstrip())
+    except SyntaxError:
+        return None
+
+    if len(line_tree.body) != 1:
+        return None
+
+    line_node = line_tree.body[0]
+
+    if not isinstance(
+        line_node,
+        (ast.Import, ast.ImportFrom),
+    ):
+        return None
+
+    if len(line_node.names) != 1:
+        return None
+
+    return AIEdit(
+        operation="delete",
+        line=diagnostic.line,
+    )
+
 def _side_effect_free_expression(node: ast.AST) -> bool:
     """Return True only for expressions safe to discard completely."""
     if isinstance(node, ast.Constant):
