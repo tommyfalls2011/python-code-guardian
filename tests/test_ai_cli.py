@@ -1462,7 +1462,7 @@ def test_safe_ai_skip_reason_covers_intent_dependent_warnings():
         _safe_ai_skip_reason(
             "Name 'run' is defined more than once."
         )
-        is None
+        is not None
     )
 
 
@@ -1670,3 +1670,192 @@ def test_safe_policy_still_repairs_identical_duplicate_definition(
     assert source.count("def run():") == 1
     assert "Deterministic repairs applied: 1" in output
     assert "[SKIPPED SAFE]" not in output
+
+
+
+def test_safe_ai_skip_reason_blocks_unresolved_duplicate_definition():
+    from codeguardian.cli import _safe_ai_skip_reason
+
+    reason = _safe_ai_skip_reason(
+        "Name 'run' is defined more than once."
+    )
+
+    assert reason is not None
+    assert "non-identical definition" in reason
+
+
+def test_cli_safe_mode_skips_nonidentical_duplicate_function_ai(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    original = (
+        "def run():\n"
+        "    return 1\n"
+        "\n"
+        "def run():\n"
+        "    return 2\n"
+    )
+    path = tmp_path / "duplicate.py"
+    path.write_text(original, encoding="utf-8")
+
+    def forbidden_ai(*args, **kwargs):
+        raise AssertionError(
+            "AI must not choose between non-identical "
+            "duplicate definitions in safe mode"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert path.read_text(encoding="utf-8") == original
+    assert output.count("[SKIPPED SAFE]") == 1
+    assert "non-identical definition" in output
+    assert "Deterministic repairs applied: 0" in output
+    assert "AI repairs applied: 0" in output
+    assert "Total repairs applied: 0" in output
+
+
+def test_cli_safe_mode_skips_nonidentical_duplicate_class_ai(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    original = (
+        "class Thing:\n"
+        "    value = 1\n"
+        "\n"
+        "class Thing:\n"
+        "    value = 2\n"
+    )
+    path = tmp_path / "duplicate_class.py"
+    path.write_text(original, encoding="utf-8")
+
+    def forbidden_ai(*args, **kwargs):
+        raise AssertionError(
+            "AI must not choose between non-identical "
+            "duplicate classes in safe mode"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert path.read_text(encoding="utf-8") == original
+    assert output.count("[SKIPPED SAFE]") == 1
+    assert "non-identical definition" in output
+    assert "AI repairs applied: 0" in output
+
+
+def test_safe_policy_identical_duplicate_still_repairs_before_skip(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "identical.py"
+    path.write_text(
+        "def run():\n"
+        "    return 1\n"
+        "\n"
+        "def run():\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        assert kwargs.get("provider") is not None
+        return real_evaluate(*args, **kwargs)
+
+    def forbidden_multi(*args, **kwargs):
+        raise AssertionError(
+            "AI multi-edit must not be used"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_multi,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+    source = path.read_text(encoding="utf-8")
+
+    assert result == 0
+    assert source.count("def run():") == 1
+    assert "[REPAIRED]" in output
+    assert "[SKIPPED SAFE]" not in output
+    assert "Deterministic repairs applied: 1" in output
+    assert "AI repairs applied: 0" in output

@@ -52,6 +52,17 @@ def _safe_ai_skip_reason(message: str) -> str | None:
             "binding the programmer intended."
         )
 
+    if (
+        message.startswith("Name '")
+        and message.endswith(
+            "' is defined more than once."
+        )
+    ):
+        return (
+            "Automatic repair would require guessing which "
+            "non-identical definition the programmer intended."
+        )
+
     if message == (
         "Wildcard import makes static analysis less reliable."
     ):
