@@ -1597,3 +1597,126 @@ def test_deterministic_mutable_default_rejects_multiple(
         source,
         diagnostic,
     ) is None
+
+
+def test_deterministic_assert_tuple_edit(tmp_path):
+    from codeguardian.ai.engine import (
+        deterministic_assert_tuple_edit,
+    )
+
+    source = (
+        "def check(value):\n"
+        "    assert (value > 0, \"must be positive\")\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Assert condition is a non-empty tuple",
+    )
+
+    edit = deterministic_assert_tuple_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "replace"
+    assert edit.line == 2
+    assert edit.content == (
+        '    assert value > 0, "must be positive"'
+    )
+
+
+def test_deterministic_assert_tuple_rejects_one_element(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_assert_tuple_edit,
+    )
+
+    source = (
+        "def check(value):\n"
+        "    assert (value,)\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Assert condition is a non-empty tuple",
+    )
+
+    assert deterministic_assert_tuple_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_deterministic_assert_tuple_rejects_three_elements(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_assert_tuple_edit,
+    )
+
+    source = (
+        "def check(value):\n"
+        "    assert (value, \"message\", 3)\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Assert condition is a non-empty tuple",
+    )
+
+    assert deterministic_assert_tuple_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_deterministic_assert_tuple_rejects_dynamic_message(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_assert_tuple_edit,
+    )
+
+    source = (
+        "def check(value, message):\n"
+        "    assert (value, message)\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Assert condition is a non-empty tuple",
+    )
+
+    assert deterministic_assert_tuple_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_deterministic_assert_tuple_rejects_multiline(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_assert_tuple_edit,
+    )
+
+    source = (
+        "def check(value):\n"
+        "    assert (\n"
+        "        value > 0,\n"
+        "        \"must be positive\",\n"
+        "    )\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Assert condition is a non-empty tuple",
+    )
+
+    assert deterministic_assert_tuple_edit(
+        source,
+        diagnostic,
+    ) is None

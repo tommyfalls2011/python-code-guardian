@@ -682,6 +682,108 @@ def deterministic_mutable_default_edits(
     ]
 
 
+
+def deterministic_assert_tuple_edit(
+    source: str,
+    diagnostic: Diagnostic,
+) -> AIEdit | None:
+    """Repair the exact assert (condition, message) tuple mistake."""
+    if diagnostic.message != (
+        "Assert condition is a non-empty tuple and is always truthy."
+    ):
+        return None
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+
+    matches = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assert)
+        and node.lineno == diagnostic.line
+    ]
+
+    if len(matches) != 1:
+        return None
+
+    node = matches[0]
+
+    if (
+        getattr(node, "end_lineno", node.lineno)
+        != node.lineno
+    ):
+        return None
+
+    if not isinstance(node.test, ast.Tuple):
+        return None
+
+    if len(node.test.elts) != 2:
+        return None
+
+    # This repair is specifically for:
+    #
+    #     assert (condition, message)
+    #
+    # Python parses that as a truthy tuple. Convert it to:
+    #
+    #     assert condition, message
+    #
+    # Require the second element to be a string literal so we do not
+    # reinterpret arbitrary tuple assertions automatically.
+    condition, message = node.test.elts
+
+    if not (
+        isinstance(message, ast.Constant)
+        and isinstance(message.value, str)
+    ):
+        return None
+
+    lines = source.splitlines()
+
+    if not (1 <= node.lineno <= len(lines)):
+        return None
+
+    original = lines[node.lineno - 1]
+    indentation = original[: len(original) - len(original.lstrip())]
+
+    condition_text = ast.get_source_segment(
+        source,
+        condition,
+    )
+    message_text = ast.get_source_segment(
+        source,
+        message,
+    )
+
+    if condition_text is None or message_text is None:
+        return None
+
+    replacement = (
+        f"{indentation}assert "
+        f"{condition_text}, {message_text}"
+    )
+
+    try:
+        parsed = ast.parse(replacement.lstrip())
+    except SyntaxError:
+        return None
+
+    if (
+        len(parsed.body) != 1
+        or not isinstance(parsed.body[0], ast.Assert)
+        or isinstance(parsed.body[0].test, ast.Tuple)
+    ):
+        return None
+
+    return AIEdit(
+        operation="replace",
+        line=node.lineno,
+        content=replacement,
+    )
+
+
 def deterministic_unreachable_code_edit(
     source: str,
     diagnostic: Diagnostic,
