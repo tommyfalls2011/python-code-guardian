@@ -2025,3 +2025,197 @@ def test_deterministic_bare_except_rejects_nonliteral_header(
         source,
         diagnostic,
     ) is None
+
+
+def test_deterministic_identical_duplicate_function(tmp_path):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_definition_edit,
+    )
+
+    source = (
+        "def run(value):\n"
+        "    return value + 1\n"
+        "\n"
+        "def run(value):\n"
+        "    return value + 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "defined more than once",
+    )
+
+    edit = deterministic_duplicate_definition_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete_range"
+    assert edit.line == 4
+    assert edit.end_line == 5
+
+
+def test_deterministic_duplicate_function_rejects_different_body(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_definition_edit,
+    )
+
+    source = (
+        "def run(value):\n"
+        "    return value + 1\n"
+        "\n"
+        "def run(value):\n"
+        "    return value + 2\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "defined more than once",
+    )
+
+    assert (
+        deterministic_duplicate_definition_edit(
+            source,
+            diagnostic,
+        )
+        is None
+    )
+
+
+def test_deterministic_identical_duplicate_class(tmp_path):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_definition_edit,
+    )
+
+    source = (
+        "class Thing:\n"
+        "    value = 1\n"
+        "\n"
+        "class Thing:\n"
+        "    value = 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "defined more than once",
+    )
+
+    edit = deterministic_duplicate_definition_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete_range"
+    assert edit.line == 4
+    assert edit.end_line == 5
+
+
+def test_deterministic_duplicate_definition_requires_same_scope(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_definition_edit,
+    )
+    from codeguardian.scanner import Diagnostic
+
+    source = (
+        "class First:\n"
+        "    def run(self):\n"
+        "        return 1\n"
+        "\n"
+        "class Second:\n"
+        "    def run(self):\n"
+        "        return 1\n"
+    )
+
+    path = tmp_path / "example.py"
+    path.write_text(source, encoding="utf-8")
+
+    diagnostic = Diagnostic(
+        file=path,
+        line=6,
+        column=5,
+        severity="WARNING",
+        message="Name 'run' is defined more than once.",
+    )
+
+    assert (
+        deterministic_duplicate_definition_edit(
+            source,
+            diagnostic,
+        )
+        is None
+    )
+
+
+def test_deterministic_duplicate_definition_includes_decorator(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_definition_edit,
+    )
+
+    source = (
+        "@staticmethod\n"
+        "def run(value):\n"
+        "    return value\n"
+        "\n"
+        "@staticmethod\n"
+        "def run(value):\n"
+        "    return value\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "defined more than once",
+    )
+
+    edit = deterministic_duplicate_definition_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete_range"
+    assert edit.line == 5
+    assert edit.end_line == 7
+
+
+def test_deterministic_duplicate_definition_rejects_different_decorator(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_duplicate_definition_edit,
+    )
+
+    source = (
+        "@staticmethod\n"
+        "def run(value):\n"
+        "    return value\n"
+        "\n"
+        "@classmethod\n"
+        "def run(value):\n"
+        "    return value\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "defined more than once",
+    )
+
+    assert (
+        deterministic_duplicate_definition_edit(
+            source,
+            diagnostic,
+        )
+        is None
+    )

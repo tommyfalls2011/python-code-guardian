@@ -1364,3 +1364,71 @@ def test_cli_bare_except_uses_deterministic_repair(
     assert "Deterministic repairs applied: 1" in output
     assert "AI repairs applied: 0" in output
     assert "Total repairs applied: 1" in output
+
+
+
+def test_cli_identical_duplicate_definition_is_deterministic(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def run(value):\n"
+        "    return value + 1\n"
+        "\n"
+        "def run(value):\n"
+        "    return value + 1\n",
+        encoding="utf-8",
+    )
+
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        provider = kwargs.get("provider")
+        assert provider is not None
+        return real_evaluate(*args, **kwargs)
+
+    def forbidden_multi(*args, **kwargs):
+        raise AssertionError(
+            "AI multi-edit must not be called "
+            "for identical duplicate definition"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_multi,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+    source = path.read_text(encoding="utf-8")
+
+    assert result == 0
+    assert source.count("def run(value):") == 1
+    assert source.count("return value + 1") == 1
+    assert "[REPAIRED]" in output
+    assert "[AI REPAIRED]" not in output
+    assert "Deterministic repairs applied: 1" in output
+    assert "AI repairs applied: 0" in output
+    assert "Total repairs applied: 1" in output

@@ -389,6 +389,138 @@ def deterministic_duplicate_import_edit(
 
 
 
+def deterministic_duplicate_definition_edit(
+    source: str,
+    diagnostic: Diagnostic,
+) -> AIEdit | None:
+    """Delete a later definition only when an earlier sibling is identical."""
+    prefix = "Name '"
+    suffix = "' is defined more than once."
+
+    if not (
+        diagnostic.message.startswith(prefix)
+        and diagnostic.message.endswith(suffix)
+    ):
+        return None
+
+    name = diagnostic.message[
+        len(prefix):-len(suffix)
+    ]
+
+    if not name.isidentifier():
+        return None
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+
+    definition_types = (
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+        ast.ClassDef,
+    )
+
+    matches = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, definition_types)
+        and node.lineno == diagnostic.line
+        and node.name == name
+    ]
+
+    if len(matches) != 1:
+        return None
+
+    target = matches[0]
+    containing_list: list[ast.stmt] | None = None
+    target_index: int | None = None
+
+    for parent in ast.walk(tree):
+        for _field, value in ast.iter_fields(parent):
+            if not isinstance(value, list):
+                continue
+
+            for index, item in enumerate(value):
+                if item is target:
+                    containing_list = value
+                    target_index = index
+                    break
+
+            if containing_list is not None:
+                break
+
+        if containing_list is not None:
+            break
+
+    if (
+        containing_list is None
+        or target_index is None
+        or target_index == 0
+    ):
+        return None
+
+    target_dump = ast.dump(
+        target,
+        include_attributes=False,
+    )
+
+    identical_earlier = any(
+        isinstance(item, type(target))
+        and getattr(item, "name", None) == name
+        and ast.dump(
+            item,
+            include_attributes=False,
+        ) == target_dump
+        for item in containing_list[:target_index]
+    )
+
+    if not identical_earlier:
+        return None
+
+    end_line = getattr(target, "end_lineno", None)
+    if end_line is None:
+        return None
+
+    start_line = target.lineno
+
+    decorator_list = getattr(
+        target,
+        "decorator_list",
+        [],
+    )
+    if decorator_list:
+        start_line = min(
+            decorator.lineno
+            for decorator in decorator_list
+        )
+
+    lines = source.splitlines()
+
+    if not (
+        1 <= start_line <= end_line <= len(lines)
+    ):
+        return None
+
+    candidate_lines = list(lines)
+    del candidate_lines[start_line - 1:end_line]
+
+    candidate = "\n".join(candidate_lines)
+    if source.endswith("\n"):
+        candidate += "\n"
+
+    try:
+        ast.parse(candidate)
+    except SyntaxError:
+        return None
+
+    return AIEdit(
+        operation="delete_range",
+        line=start_line,
+        end_line=end_line,
+    )
+
+
 def deterministic_unused_import_edit(
     source: str,
     diagnostic: Diagnostic,
