@@ -1502,7 +1502,9 @@ def test_deterministic_mutable_default_dict(tmp_path):
     assert "options = {}" in edits[1].content
 
 
-def test_deterministic_mutable_default_set(tmp_path):
+def test_deterministic_mutable_default_rejects_set_call(
+    tmp_path,
+):
     from codeguardian.ai.engine import (
         deterministic_mutable_default_edits,
     )
@@ -1517,14 +1519,36 @@ def test_deterministic_mutable_default_set(tmp_path):
         "Mutable default argument",
     )
 
-    edits = deterministic_mutable_default_edits(
+    assert deterministic_mutable_default_edits(
         source,
         diagnostic,
+    ) is None
+
+
+def test_deterministic_mutable_default_rejects_shadowed_set(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
     )
 
-    assert edits is not None
-    assert "values=None" in edits[0].content
-    assert "values = set()" in edits[1].content
+    source = (
+        "def set():\n"
+        '    return ["definition-time"]\n'
+        "\n"
+        "def collect(values=set()):\n"
+        "    return values\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    assert deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    ) is None
 
 
 def test_deterministic_mutable_default_keyword_only(

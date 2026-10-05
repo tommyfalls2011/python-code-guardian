@@ -591,15 +591,6 @@ def deterministic_mutable_default_edits(
                 return None
             return "{}"
 
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "set"
-            and not node.args
-            and not node.keywords
-        ):
-            return "set()"
-
         return None
 
     for argument, default in zip(
