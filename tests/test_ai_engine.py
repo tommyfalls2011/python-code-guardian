@@ -1446,3 +1446,154 @@ def test_unreachable_repair_does_not_cross_branch_boundary(
         source,
         diagnostic,
     ) is None
+
+
+def test_deterministic_mutable_default_list(tmp_path):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(items=[]):\n"
+        "    return items\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    edits = deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    )
+
+    assert edits is not None
+    assert len(edits) == 2
+    assert edits[0].content == "def collect(items=None):"
+    assert edits[1].content == (
+        "    if items is None:\n"
+        "        items = []"
+    )
+
+
+def test_deterministic_mutable_default_dict(tmp_path):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(options={}):\n"
+        "    return options\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    edits = deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    )
+
+    assert edits is not None
+    assert "options=None" in edits[0].content
+    assert "options = {}" in edits[1].content
+
+
+def test_deterministic_mutable_default_set(tmp_path):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(values=set()):\n"
+        "    return values\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    edits = deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    )
+
+    assert edits is not None
+    assert "values=None" in edits[0].content
+    assert "values = set()" in edits[1].content
+
+
+def test_deterministic_mutable_default_keyword_only(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(*, items=[]):\n"
+        "    return items\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    edits = deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    )
+
+    assert edits is not None
+    assert "items=None" in edits[0].content
+
+
+def test_deterministic_mutable_default_rejects_nonempty(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(items=[1]):\n"
+        "    return items\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    assert deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_deterministic_mutable_default_rejects_multiple(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(items=[], options={}):\n"
+        "    return items, options\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    assert deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    ) is None

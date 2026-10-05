@@ -210,10 +210,29 @@ def test_cli_ai_repair_routes_mutable_default_to_multi_edit(
         source,
         diagnostic,
         model,
+        provider=None,
     ):
         called["multi"] = True
         assert source == original
         assert model == "test-model"
+        assert provider is not None
+
+        edits = provider(
+            diagnostic=diagnostic.message,
+            line=diagnostic.line,
+            context="",
+            model=model,
+            max_edits=3,
+        )
+
+        assert len(edits) == 2
+        assert edits[0].content == (
+            "def example(items=None):"
+        )
+        assert edits[1].content == (
+            "    if items is None:\n"
+            "        items = []"
+        )
 
         return AIEditsEvaluation(
             accepted=True,

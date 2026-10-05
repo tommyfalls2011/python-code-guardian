@@ -503,6 +503,185 @@ def _side_effect_free_expression(
 
     return False
 
+
+def deterministic_mutable_default_edits(
+    source: str,
+    diagnostic: Diagnostic,
+) -> list[AIEdit] | None:
+    """Repair one simple mutable default with a bounded two-edit transaction."""
+    if not diagnostic.message.startswith(
+        "Mutable default argument"
+    ):
+        return None
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+
+    functions = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(
+            node,
+            (ast.FunctionDef, ast.AsyncFunctionDef),
+        )
+        and node.lineno == diagnostic.line
+    ]
+
+    if len(functions) != 1:
+        return None
+
+    function = functions[0]
+
+    if getattr(
+        function,
+        "end_lineno",
+        function.lineno,
+    ) == function.lineno:
+        return None
+
+    lines = source.splitlines()
+
+    if not (1 <= function.lineno <= len(lines)):
+        return None
+
+    header = lines[function.lineno - 1]
+
+    try:
+        header_tree = ast.parse(
+            header.lstrip() + "\n    pass\n"
+        )
+    except SyntaxError:
+        return None
+
+    if (
+        len(header_tree.body) != 1
+        or not isinstance(
+            header_tree.body[0],
+            (ast.FunctionDef, ast.AsyncFunctionDef),
+        )
+    ):
+        return None
+
+    positional = (
+        list(function.args.posonlyargs)
+        + list(function.args.args)
+    )
+
+    positional_defaults = list(function.args.defaults)
+    positional_with_defaults = positional[
+        len(positional) - len(positional_defaults):
+    ]
+
+    candidates: list[
+        tuple[str, ast.expr, str]
+    ] = []
+
+    def mutable_factory(
+        node: ast.expr,
+    ) -> str | None:
+        if isinstance(node, ast.List):
+            if node.elts:
+                return None
+            return "[]"
+
+        if isinstance(node, ast.Dict):
+            if node.keys or node.values:
+                return None
+            return "{}"
+
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "set"
+            and not node.args
+            and not node.keywords
+        ):
+            return "set()"
+
+        return None
+
+    for argument, default in zip(
+        positional_with_defaults,
+        positional_defaults,
+    ):
+        factory = mutable_factory(default)
+        if factory is not None:
+            candidates.append(
+                (argument.arg, default, factory)
+            )
+
+    for argument, default in zip(
+        function.args.kwonlyargs,
+        function.args.kw_defaults,
+    ):
+        if default is None:
+            continue
+
+        factory = mutable_factory(default)
+        if factory is not None:
+            candidates.append(
+                (argument.arg, default, factory)
+            )
+
+    if len(candidates) != 1:
+        return None
+
+    name, default, factory = candidates[0]
+
+    if (
+        getattr(default, "lineno", None)
+        != function.lineno
+        or getattr(default, "end_lineno", None)
+        != function.lineno
+    ):
+        return None
+
+    start = default.col_offset
+    end = default.end_col_offset
+
+    leading = len(header) - len(header.lstrip())
+    start -= leading
+    end -= leading
+
+    stripped = header.lstrip()
+
+    if not (
+        0 <= start < end <= len(stripped)
+    ):
+        return None
+
+    replacement_header = (
+        stripped[:start]
+        + "None"
+        + stripped[end:]
+    )
+
+    indentation = header[:leading] + "    "
+
+    initializer = (
+        f"{indentation}if {name} is None:\n"
+        f"{indentation}    {name} = {factory}"
+    )
+
+    return [
+        AIEdit(
+            operation="replace",
+            line=function.lineno,
+            content=(
+                header[:leading]
+                + replacement_header
+            ),
+        ),
+        AIEdit(
+            operation="insert_after",
+            line=function.lineno,
+            content=initializer,
+        ),
+    ]
+
+
 def deterministic_unreachable_code_edit(
     source: str,
     diagnostic: Diagnostic,
