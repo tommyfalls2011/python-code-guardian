@@ -5,6 +5,7 @@ from codeguardian.ai.engine import (
     AIEditEvaluation,
     apply_evaluated_ai_edit,
     evaluate_ai_edit,
+    evaluate_ai_edits,
 )
 from codeguardian.analyzer import analyze_file
 
@@ -339,4 +340,164 @@ def test_engine_rejects_single_edit_mutable_default(tmp_path):
     assert result.edit is None
     assert called is False
     assert "multi-edit" in result.reason
+
+def test_engine_accepts_safe_multi_edit_mutable_default(tmp_path):
+    source = (
+        "def example(items=[]):\n"
+        "    return len(items)\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    def provider(**kwargs):
+        assert kwargs["line"] == 1
+        assert kwargs["max_edits"] == 3
+        return [
+            AIEdit(
+                "replace",
+                1,
+                "def example(items=None):",
+            ),
+            AIEdit(
+                "insert_after",
+                1,
+                (
+                    "    if items is None:\n"
+                    "        items = []"
+                ),
+            ),
+        ]
+
+    result = evaluate_ai_edits(
+        source=source,
+        diagnostic=diagnostic,
+        model="test-model",
+        provider=provider,
+    )
+
+    assert result.accepted is True
+    assert len(result.edits) == 2
+    assert result.candidate_source == (
+        "def example(items=None):\n"
+        "    if items is None:\n"
+        "        items = []\n"
+        "    return len(items)\n"
+    )
+
+
+def test_engine_multi_edit_rejects_outside_window(tmp_path):
+    source = "".join(
+        [
+            "value_1 = 1\n",
+            "value_2 = 2\n",
+            "value_3 = 3\n",
+            "value_4 = 4\n",
+            "value_5 = 5\n",
+            "value_6 = 6\n",
+            "value_7 = 7\n",
+            "value_8 = 8\n",
+            "def example(items=[]):\n",
+            "    return len(items)\n",
+        ]
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    def provider(**kwargs):
+        return [
+            AIEdit(
+                "replace",
+                1,
+                "value_1 = 999",
+            ),
+            AIEdit(
+                "replace",
+                9,
+                "def example(items=None):",
+            ),
+        ]
+
+    result = evaluate_ai_edits(
+        source=source,
+        diagnostic=diagnostic,
+        model="test-model",
+        provider=provider,
+        context_lines=2,
+    )
+
+    assert result.accepted is False
+    assert result.candidate_source is None
+    assert "authorized source window" in result.reason
+
+
+def test_engine_multi_edit_rejects_new_error(tmp_path):
+    source = (
+        "def example(items=[]):\n"
+        "    return len(items)\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    def provider(**kwargs):
+        return [
+            AIEdit(
+                "replace",
+                1,
+                "def example(items=None):",
+            ),
+            AIEdit(
+                "insert_after",
+                1,
+                "    definitely_not_defined",
+            ),
+        ]
+
+    result = evaluate_ai_edits(
+        source=source,
+        diagnostic=diagnostic,
+        model="test-model",
+        provider=provider,
+    )
+
+    assert result.accepted is False
+    assert result.candidate_source is None
+    assert (
+        "new error" in result.reason
+        or "not repaired" in result.reason
+    )
+
+
+def test_engine_multi_edit_rejects_empty_transaction(tmp_path):
+    source = (
+        "def example(items=[]):\n"
+        "    return len(items)\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    def provider(**kwargs):
+        return []
+
+    result = evaluate_ai_edits(
+        source=source,
+        diagnostic=diagnostic,
+        model="test-model",
+        provider=provider,
+    )
+
+    assert result.accepted is False
+    assert result.candidate_source is None
+    assert "empty" in result.reason
 

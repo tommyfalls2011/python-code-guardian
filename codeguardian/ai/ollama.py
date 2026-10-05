@@ -265,3 +265,205 @@ def request_ai_edit(
         content=content,
     )
 
+def build_multi_edit_prompt(
+    *,
+    diagnostic: str,
+    line: int,
+    context: str,
+    max_edits: int = 3,
+) -> str:
+    return f"""You are proposing a tiny Python repair transaction.
+
+Diagnostic:
+{diagnostic}
+
+The diagnostic is centered on original source line {line}.
+
+Return exactly one JSON object with this shape:
+{{
+  "edits": [
+    {{
+      "operation": "replace",
+      "line": {line},
+      "content": "replacement source"
+    }}
+  ]
+}}
+
+Allowed operations:
+delete
+replace
+insert_before
+insert_after
+
+Rules:
+- Return between 1 and {max_edits} edits.
+- Every line number refers to the ORIGINAL source shown below.
+- If several new lines must be inserted together, put ALL of them in ONE insert_before or insert_after edit using \n inside content.
+- Do not split a logical multi-line block across different original line anchors.
+- Modify only lines necessary to repair the diagnostic.
+- Preserve unrelated behavior.
+- For delete, content MUST be an empty string.
+- For replace/insert operations, content MUST be nonempty.
+- Do not return duplicate destructive edits for one line.
+- Return JSON only.
+- No Markdown.
+- No explanation.
+
+Context:
+{context}
+"""
+
+
+def request_ai_edits(
+    *,
+    diagnostic: str,
+    line: int,
+    context: str,
+    model: str,
+    max_edits: int = 3,
+    base_url: str = "http://127.0.0.1:11434",
+) -> list[AIEdit]:
+    if max_edits < 1 or max_edits > 3:
+        raise ValueError("max_edits must be between 1 and 3")
+
+    prompt = build_multi_edit_prompt(
+        diagnostic=diagnostic,
+        line=line,
+        context=context,
+        max_edits=max_edits,
+    )
+
+    payload = json.dumps(
+        {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {
+                "temperature": 0,
+            },
+        }
+    ).encode("utf-8")
+
+    request = Request(
+        f"{base_url.rstrip("/")}/api/generate",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=300) as response:
+            response_data = json.loads(
+                response.read().decode("utf-8")
+            )
+    except HTTPError as exc:
+        raise OllamaError(
+            f"Ollama HTTP error {exc.code}"
+        ) from exc
+    except URLError as exc:
+        raise OllamaError(
+            f"Unable to connect to Ollama: {exc.reason}"
+        ) from exc
+    except TimeoutError as exc:
+        raise OllamaError(
+            "Ollama request timed out"
+        ) from exc
+
+    raw = response_data.get("response")
+
+    if not isinstance(raw, str):
+        raise OllamaError(
+            "Ollama response does not contain a response string"
+        )
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise OllamaError(
+            "Ollama returned invalid JSON"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise OllamaError(
+            "AI multi-edit response must be a JSON object"
+        )
+
+    if set(data) != {"edits"}:
+        raise OllamaError(
+            "AI multi-edit response must contain only edits"
+        )
+
+    raw_edits = data["edits"]
+
+    if not isinstance(raw_edits, list):
+        raise OllamaError("AI edits must be a JSON array")
+
+    if not raw_edits:
+        raise OllamaError("AI edits array must not be empty")
+
+    if len(raw_edits) > max_edits:
+        raise OllamaError("AI returned too many edits")
+
+    edits: list[AIEdit] = []
+
+    for raw_edit in raw_edits:
+        if not isinstance(raw_edit, dict):
+            raise OllamaError(
+                "each AI edit must be a JSON object"
+            )
+
+        if set(raw_edit) != {
+            "operation",
+            "line",
+            "content",
+        }:
+            raise OllamaError(
+                "AI edit contains invalid keys"
+            )
+
+        operation = raw_edit["operation"]
+        edit_line = raw_edit["line"]
+        content = raw_edit["content"]
+
+        if operation not in {
+            "delete",
+            "replace",
+            "insert_before",
+            "insert_after",
+        }:
+            raise OllamaError(
+                "AI edit contains an invalid operation"
+            )
+
+        if type(edit_line) is not int or edit_line < 1:
+            raise OllamaError(
+                "AI edit line must be a positive integer"
+            )
+
+        if not isinstance(content, str):
+            raise OllamaError(
+                "AI edit content must be a string"
+            )
+
+        if operation == "delete":
+            if content:
+                raise OllamaError(
+                    "delete edit content must be empty"
+                )
+        elif not content:
+            raise OllamaError(
+                "non-delete edit content must not be empty"
+            )
+
+        edits.append(
+            AIEdit(
+                operation=operation,
+                line=edit_line,
+                content=content,
+            )
+        )
+
+    return edits
+

@@ -1,3 +1,4 @@
+from codeguardian.analyzer import analyze_file
 import sys
 
 import pytest
@@ -163,3 +164,116 @@ def test_cli_ai_repair_leaves_rejected_source_unchanged(
     assert target.read_text(
         encoding="utf-8"
     ) == original
+
+def test_cli_ai_repair_routes_mutable_default_to_multi_edit(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    import codeguardian.cli as cli
+    from codeguardian.ai.edit import AIEdit
+    from codeguardian.ai.engine import AIEditsEvaluation
+
+    target = tmp_path / "sample.py"
+    original = (
+        "def example(items=[]):\n"
+        "    return len(items)\n"
+    )
+    candidate = (
+        "def example(items=None):\n"
+        "    if items is None:\n"
+        "        items = []\n"
+        "    return len(items)\n"
+    )
+    target.write_text(original, encoding="utf-8")
+
+    diagnostics = analyze_file(target).diagnostics
+    diagnostic = next(
+        item
+        for item in diagnostics
+        if "Mutable default argument" in item.message
+    )
+
+    called = {
+        "single": False,
+        "multi": False,
+    }
+
+    def fake_single(**kwargs):
+        called["single"] = True
+        raise AssertionError(
+            "mutable default used single-edit evaluator"
+        )
+
+    def fake_multi(
+        *,
+        source,
+        diagnostic,
+        model,
+    ):
+        called["multi"] = True
+        assert source == original
+        assert model == "test-model"
+
+        return AIEditsEvaluation(
+            accepted=True,
+            reason="safe",
+            edits=[
+                AIEdit(
+                    "replace",
+                    1,
+                    "def example(items=None):",
+                ),
+                AIEdit(
+                    "insert_after",
+                    1,
+                    (
+                        "    if items is None:\n"
+                        "        items = []"
+                    ),
+                ),
+            ],
+            candidate_source=candidate,
+            before_diagnostics=[diagnostic],
+            after_diagnostics=[],
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        fake_single,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        fake_multi,
+    )
+    monkeypatch.setattr(
+        cli,
+        "analyze_file",
+        analyze_file,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "codeguardian",
+            str(target),
+            "--ai-repair",
+            "--ai-model",
+            "test-model",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert called["multi"] is True
+    assert called["single"] is False
+    assert "[AI REPAIRED]" in output
+    assert "Operation: replace" in output
+    assert "Operation: insert_after" in output
+    assert target.read_text(
+        encoding="utf-8"
+    ) == candidate

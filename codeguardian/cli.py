@@ -8,6 +8,7 @@ from .analyzer import analyze_file
 from .ai.engine import (
     apply_evaluated_ai_edit,
     evaluate_ai_edit,
+    evaluate_ai_edits,
 )
 from .ai.ollama import OllamaError
 from .audit import RepairAudit
@@ -278,11 +279,20 @@ def main() -> int:
             )
 
             try:
-                evaluation = evaluate_ai_edit(
-                    source=source,
-                    diagnostic=diagnostic,
-                    model=args.ai_model,
-                )
+                if diagnostic.message.startswith(
+                    "Mutable default argument"
+                ):
+                    evaluation = evaluate_ai_edits(
+                        source=source,
+                        diagnostic=diagnostic,
+                        model=args.ai_model,
+                    )
+                else:
+                    evaluation = evaluate_ai_edit(
+                        source=source,
+                        diagnostic=diagnostic,
+                        model=args.ai_model,
+                    )
             except (
                 OllamaError,
                 ValueError,
@@ -323,13 +333,20 @@ def main() -> int:
                 f"[AI REPAIRED] {diagnostic.file}:"
                 f"{diagnostic.line}:{diagnostic.column}"
             )
-            print(
-                f"    Operation: "
-                f"{evaluation.edit.operation}"
-            )
-            print(
-                f"    Line: {evaluation.edit.line}"
-            )
+            if hasattr(evaluation, "edits"):
+                for edit in evaluation.edits:
+                    print(
+                        f"    Operation: {edit.operation}"
+                    )
+                    print(f"    Line: {edit.line}")
+            else:
+                print(
+                    f"    Operation: "
+                    f"{evaluation.edit.operation}"
+                )
+                print(
+                    f"    Line: {evaluation.edit.line}"
+                )
             if transaction.backup is not None:
                 print(
                     f"    Backup: {transaction.backup}"
