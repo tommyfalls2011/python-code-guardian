@@ -316,6 +316,29 @@ def main() -> int:
                 if rejection_key in rejected_attempts:
                     continue
 
+                if (
+                    args.policy == "safe"
+                    and diagnostic.message
+                    == (
+                        "Code is guarded by 'if False' "
+                        "and will never execute."
+                    )
+                ):
+                    print(
+                        f"[SKIPPED SAFE] {diagnostic.file}:"
+                        f"{diagnostic.line}:"
+                        f"{diagnostic.column}"
+                    )
+                    print(
+                        "    Automatic repair could expose "
+                        "intentionally unreachable code."
+                    )
+                    print()
+                    rejected_attempts.add(
+                        rejection_key
+                    )
+                    continue
+
                 repair_source = "ai"
 
                 try:

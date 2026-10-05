@@ -1095,3 +1095,132 @@ def test_cli_unreachable_code_uses_deterministic_repair(
 
     output = capsys.readouterr().out
     assert "Deterministic repairs applied: 1" in output
+
+
+def test_cli_safe_mode_skips_if_false_ai_repair(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    original = (
+        "def example():\n"
+        "    if False:\n"
+        '        print("never")\n'
+        "    return 1\n"
+    )
+    path.write_text(original, encoding="utf-8")
+
+    def forbidden_ai(*args, **kwargs):
+        raise AssertionError(
+            "AI must not be called for if False "
+            "under safe policy"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "3",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert path.read_text(encoding="utf-8") == original
+    assert "[SKIPPED SAFE]" in output
+    assert (
+        "intentionally unreachable code"
+        in output
+    )
+    assert "Deterministic repairs applied: 0" in output
+    assert "AI repairs applied: 0" in output
+    assert "Total repairs applied: 0" in output
+
+
+def test_cli_safe_if_false_skip_does_not_block_other_repairs(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "import os\n"
+        "import os\n"
+        "\n"
+        "def example():\n"
+        "    if False:\n"
+        '        print("never")\n'
+        "    return os.getcwd()\n",
+        encoding="utf-8",
+    )
+
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        assert kwargs.get("provider") is not None
+        return real_evaluate(*args, **kwargs)
+
+    def forbidden_multi(*args, **kwargs):
+        raise AssertionError(
+            "AI must not be called during this safe test"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_multi,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "3",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+
+    source = path.read_text(encoding="utf-8")
+
+    assert source.count("import os") == 1
+    assert "if False:" in source
+    assert 'print("never")' in source
+
+    assert "Deterministic repairs applied: 1" in output
+    assert "AI repairs applied: 0" in output
+    assert "[SKIPPED SAFE]" in output
