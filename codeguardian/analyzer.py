@@ -85,20 +85,6 @@ class PythonAnalyzer(ast.NodeVisitor):
 
         self.generic_visit(node)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        if node.name in self.defined_names:
-            self.diagnostic(
-                node,
-                "WARNING",
-                f"Name '{node.name}' is defined more than once.",
-            )
-
-        self.defined_names.add(node.name)
-        self.generic_visit(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self.visit_FunctionDef(node)
-
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         if node.name in self.defined_names:
             self.diagnostic(
@@ -116,6 +102,61 @@ class PythonAnalyzer(ast.NodeVisitor):
 
         self.generic_visit(node)
 
+    def _check_unreachable_statements(
+        self,
+        statements: list[ast.stmt],
+    ) -> None:
+        terminated = False
+
+        for statement in statements:
+            if terminated:
+                self.diagnostic(
+                    statement,
+                    "WARNING",
+                    "Unreachable code after unconditional control transfer.",
+                )
+                continue
+
+            if isinstance(
+                statement,
+                (ast.Return, ast.Raise, ast.Break, ast.Continue),
+            ):
+                terminated = True
+
+    def visit_Module(self, node: ast.Module) -> None:
+        self._check_unreachable_statements(node.body)
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        if node.name in self.defined_names:
+            self.diagnostic(
+                node,
+                "WARNING",
+                f"Name '{node.name}' is defined more than once.",
+            )
+
+        self.defined_names.add(node.name)
+        self._check_unreachable_statements(node.body)
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.visit_FunctionDef(node)
+
+    def visit_For(self, node: ast.For) -> None:
+        self._check_unreachable_statements(node.body)
+        self._check_unreachable_statements(node.orelse)
+        self.generic_visit(node)
+
+    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+        self.visit_For(node)
+
+    def visit_With(self, node: ast.With) -> None:
+        self._check_unreachable_statements(node.body)
+        self.generic_visit(node)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
+        self.visit_With(node)
+
     def visit_If(self, node: ast.If) -> None:
         if isinstance(node.test, ast.Constant) and node.test.value is False:
             self.diagnostic(
@@ -124,6 +165,8 @@ class PythonAnalyzer(ast.NodeVisitor):
                 "Code is guarded by 'if False' and will never execute.",
             )
 
+        self._check_unreachable_statements(node.body)
+        self._check_unreachable_statements(node.orelse)
         self.generic_visit(node)
 
     def visit_While(self, node: ast.While) -> None:
@@ -134,6 +177,21 @@ class PythonAnalyzer(ast.NodeVisitor):
                 "Loop uses 'while True'; verify that it has a reachable exit.",
             )
 
+        self._check_unreachable_statements(node.body)
+        self._check_unreachable_statements(node.orelse)
+        self.generic_visit(node)
+
+    def visit_Try(self, node: ast.Try) -> None:
+        self._check_unreachable_statements(node.body)
+        self._check_unreachable_statements(node.orelse)
+        self._check_unreachable_statements(node.finalbody)
+        for handler in node.handlers:
+            self._check_unreachable_statements(handler.body)
+        self.generic_visit(node)
+
+    def visit_Match(self, node: ast.Match) -> None:
+        for case in node.cases:
+            self._check_unreachable_statements(case.body)
         self.generic_visit(node)
 
 

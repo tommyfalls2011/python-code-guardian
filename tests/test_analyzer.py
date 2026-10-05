@@ -598,3 +598,32 @@ def test_pipeline_rejects_invalid_repair_limit():
         assert "max_repairs" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
+
+
+
+def test_detects_unreachable_code_after_return(tmp_path):
+    path = tmp_path / "after_return.py"
+    path.write_text("def example():\n    return 1\n    value = 2\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Unreachable code" in d.message and d.line == 3 for d in result.diagnostics)
+
+
+def test_detects_unreachable_code_after_raise(tmp_path):
+    path = tmp_path / "after_raise.py"
+    path.write_text("def example():\n    raise RuntimeError()\n    value = 2\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Unreachable code" in d.message and d.line == 3 for d in result.diagnostics)
+
+
+def test_detects_unreachable_code_after_break(tmp_path):
+    path = tmp_path / "after_break.py"
+    path.write_text("for value in range(3):\n    break\n    print(value)\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Unreachable code" in d.message and d.line == 3 for d in result.diagnostics)
+
+
+def test_detects_unreachable_code_after_continue(tmp_path):
+    path = tmp_path / "after_continue.py"
+    path.write_text("for value in range(3):\n    continue\n    print(value)\n", encoding="utf-8")
+    result = analyze_file(path)
+    assert any("Unreachable code" in d.message and d.line == 3 for d in result.diagnostics)
