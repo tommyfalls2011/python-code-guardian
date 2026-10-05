@@ -439,10 +439,10 @@ def test_plain_pipeline_preserves_specific_except(tmp_path):
 
     path = tmp_path / "example.py"
     original = (
-        "try:\\n"
-        "    raise ValueError(1)\\n"
-        "except ValueError:\\n"
-        "    pass\\n"
+        "try:\n"
+        "    raise ValueError(1)\n"
+        "except ValueError:\n"
+        "    pass\n"
     )
     path.write_text(original, encoding="utf-8")
 
