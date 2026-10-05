@@ -503,6 +503,91 @@ def _side_effect_free_expression(
 
     return False
 
+def deterministic_unreachable_code_edit(
+    source: str,
+    diagnostic: Diagnostic,
+) -> AIEdit | None:
+    """Delete one provably unreachable single-line sibling statement."""
+    if diagnostic.message != (
+        "Unreachable code after unconditional control transfer."
+    ):
+        return None
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+
+    target: ast.stmt | None = None
+    containing_list: list[ast.stmt] | None = None
+    target_index: int | None = None
+
+    for parent in ast.walk(tree):
+        for _field, value in ast.iter_fields(parent):
+            if not isinstance(value, list):
+                continue
+
+            for index, item in enumerate(value):
+                if not isinstance(item, ast.stmt):
+                    continue
+
+                if item.lineno != diagnostic.line:
+                    continue
+
+                if target is not None:
+                    return None
+
+                target = item
+                containing_list = value
+                target_index = index
+
+    if (
+        target is None
+        or containing_list is None
+        or target_index is None
+    ):
+        return None
+
+    if getattr(target, "end_lineno", target.lineno) != target.lineno:
+        return None
+
+    if target_index == 0:
+        return None
+
+    terminators = (
+        ast.Return,
+        ast.Raise,
+        ast.Break,
+        ast.Continue,
+    )
+
+    if not any(
+        isinstance(item, terminators)
+        for item in containing_list[:target_index]
+    ):
+        return None
+
+    lines = source.splitlines()
+
+    if not (1 <= diagnostic.line <= len(lines)):
+        return None
+
+    line = lines[diagnostic.line - 1]
+
+    try:
+        line_tree = ast.parse(line.lstrip())
+    except SyntaxError:
+        return None
+
+    if len(line_tree.body) != 1:
+        return None
+
+    return AIEdit(
+        operation="delete",
+        line=diagnostic.line,
+    )
+
+
 def deterministic_unused_definition_edit(
     source: str,
     diagnostic: Diagnostic,

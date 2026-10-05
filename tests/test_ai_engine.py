@@ -1274,3 +1274,175 @@ def test_unused_definition_repair_rejects_sequence_with_expression(
         source,
         diagnostic,
     ) is None
+
+
+def test_unreachable_repair_deletes_statement_after_return(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unreachable_code_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    return 1\n"
+        "    value = 2\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unreachable code after unconditional control transfer.",
+    )
+
+    edit = deterministic_unreachable_code_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 3
+
+
+def test_unreachable_repair_deletes_statement_after_raise(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unreachable_code_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    raise RuntimeError()\n"
+        "    value = 2\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unreachable code after unconditional control transfer.",
+    )
+
+    edit = deterministic_unreachable_code_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.line == 3
+
+
+def test_unreachable_repair_deletes_statement_after_break(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unreachable_code_edit,
+    )
+
+    source = (
+        "for value in range(3):\n"
+        "    break\n"
+        "    print(value)\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unreachable code after unconditional control transfer.",
+    )
+
+    edit = deterministic_unreachable_code_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.line == 3
+
+
+def test_unreachable_repair_deletes_statement_after_continue(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unreachable_code_edit,
+    )
+
+    source = (
+        "for value in range(3):\n"
+        "    continue\n"
+        "    print(value)\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unreachable code after unconditional control transfer.",
+    )
+
+    edit = deterministic_unreachable_code_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.line == 3
+
+
+def test_unreachable_repair_rejects_multiline_statement(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unreachable_code_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    return 1\n"
+        "    value = (\n"
+        "        2\n"
+        "    )\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unreachable code after unconditional control transfer.",
+    )
+
+    assert deterministic_unreachable_code_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_unreachable_repair_does_not_cross_branch_boundary(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        Diagnostic,
+        deterministic_unreachable_code_edit,
+    )
+
+    source = (
+        "def example(condition):\n"
+        "    if condition:\n"
+        "        return 1\n"
+        "    value = 2\n"
+        "    return value\n"
+    )
+
+    diagnostic = Diagnostic(
+        file=tmp_path / "example.py",
+        line=4,
+        column=5,
+        severity="WARNING",
+        message=(
+            "Unreachable code after unconditional control transfer."
+        ),
+    )
+
+    assert deterministic_unreachable_code_edit(
+        source,
+        diagnostic,
+    ) is None

@@ -1021,3 +1021,70 @@ def test_cli_unused_import_uses_deterministic_repair(
 
     output = capsys.readouterr().out
     assert "AI repairs applied: 1" in output
+
+
+def test_cli_unreachable_code_uses_deterministic_repair(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def example():\n"
+        "    return 1\n"
+        "    value = 2\n",
+        encoding="utf-8",
+    )
+
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        provider = kwargs.get("provider")
+
+        if provider is None:
+            raise AssertionError(
+                "Ollama evaluator must not be used "
+                "for safe unreachable code"
+            )
+
+        return real_evaluate(*args, **kwargs)
+
+    def forbidden_multi(*args, **kwargs):
+        raise AssertionError(
+            "multi-edit AI must not be used "
+            "for safe unreachable code"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_multi,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--max-repairs",
+            "1",
+        ],
+    )
+
+    result = cli.main()
+
+    assert result == 0
+
+    source = path.read_text(encoding="utf-8")
+    assert "return 1" in source
+    assert "value = 2" not in source
+
+    output = capsys.readouterr().out
+    assert "AI repairs applied: 1" in output
