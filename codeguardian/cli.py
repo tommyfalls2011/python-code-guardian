@@ -5,6 +5,11 @@ from pathlib import Path
 
 from . import __version__
 from .analyzer import analyze_file
+from .ai.engine import (
+    apply_evaluated_ai_edit,
+    evaluate_ai_edit,
+)
+from .ai.ollama import OllamaError
 from .audit import RepairAudit
 from .history import RepairHistory
 from .pipeline import GuardianPipeline
@@ -45,6 +50,21 @@ def main() -> int:
     )
 
     parser.add_argument(
+        "--ai-repair",
+        action="store_true",
+        help="Use a local AI model for one bounded repair.",
+    )
+
+    parser.add_argument(
+        "--ai-model",
+        default="qwen2.5-coder:7b",
+        help=(
+            "Ollama model for --ai-repair "
+            "(default: qwen2.5-coder:7b)."
+        ),
+    )
+
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show supported repairs without modifying files.",
@@ -76,6 +96,12 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    if args.repair and args.ai_repair:
+        parser.error(
+            "--repair and --ai-repair cannot be used together"
+        )
+
     target = args.path.resolve()
 
     if not target.exists():
@@ -232,6 +258,111 @@ def main() -> int:
 
         print(f"Repairs available: {planned}")
         print()
+
+    elif args.ai_repair and report.total_count:
+        print("AI REPAIR MODE:")
+        print(f"Model: {args.ai_model}")
+        print()
+
+        applied = False
+
+        for diagnostic in list(report.diagnostics):
+            if diagnostic.severity.upper() not in {
+                "ERROR",
+                "WARNING",
+            }:
+                continue
+
+            source = diagnostic.file.read_text(
+                encoding="utf-8"
+            )
+
+            try:
+                evaluation = evaluate_ai_edit(
+                    source=source,
+                    diagnostic=diagnostic,
+                    model=args.ai_model,
+                )
+            except (
+                OllamaError,
+                ValueError,
+                OSError,
+            ) as exc:
+                print(
+                    f"[AI REJECTED] {diagnostic.file}:"
+                    f"{diagnostic.line}:{diagnostic.column}"
+                )
+                print(f"    {exc}")
+                print()
+                continue
+
+            if not evaluation.accepted:
+                print(
+                    f"[AI REJECTED] {diagnostic.file}:"
+                    f"{diagnostic.line}:{diagnostic.column}"
+                )
+                print(f"    {evaluation.reason}")
+                print()
+                continue
+
+            transaction = apply_evaluated_ai_edit(
+                diagnostic.file,
+                evaluation,
+            )
+
+            if not transaction.applied:
+                print(
+                    f"[AI REJECTED] {diagnostic.file}:"
+                    f"{diagnostic.line}:{diagnostic.column}"
+                )
+                print(f"    {transaction.reason}")
+                print()
+                continue
+
+            print(
+                f"[AI REPAIRED] {diagnostic.file}:"
+                f"{diagnostic.line}:{diagnostic.column}"
+            )
+            print(
+                f"    Operation: "
+                f"{evaluation.edit.operation}"
+            )
+            print(
+                f"    Line: {evaluation.edit.line}"
+            )
+            if transaction.backup is not None:
+                print(
+                    f"    Backup: {transaction.backup}"
+                )
+            print()
+
+            applied = True
+            break
+
+        if applied:
+            diagnostics = []
+
+            for current_path in files:
+                syntax_diagnostics = scanner.check_file(
+                    current_path
+                )
+
+                if syntax_diagnostics:
+                    diagnostics.extend(
+                        syntax_diagnostics
+                    )
+                    continue
+
+                diagnostics.extend(
+                    analyze_file(
+                        current_path
+                    ).diagnostics
+                )
+
+            report = Report(diagnostics)
+        else:
+            print("AI repairs applied: 0")
+            print()
 
     elif args.repair and report.total_count:
         pipeline = GuardianPipeline(
