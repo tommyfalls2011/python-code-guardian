@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from .candidate import build_candidate
-from .confidence import RepairConfidence
 from .plan import RepairPlan
-from .parser_guard import verify_current_diagnostic
 from .repair_strategies.dictionary import missing_dict_comma
 from .repair_strategies.delimiters import unclosed_delimiter, unmatched_closing_delimiter
 from .repair_strategies.indentation import unindent_mismatch, expected_indented_block, unexpected_indent
@@ -11,7 +8,6 @@ from .repair_strategies.comma import missing_comma
 from .repair_strategies.colon import missing_colon
 from .repair_strategies.punctuation import duplicate_punctuation
 from .repair_strategies.imports_parameters import missing_import_comma, missing_parameter_comma
-from .repair import Repair
 from .scanner import Diagnostic
 from .strategies import RepairStrategyRegistry
 
