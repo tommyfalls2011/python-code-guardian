@@ -704,3 +704,120 @@ def test_duplicate_import_evaluation_accepts_one_occurrence_reduction(
 
     assert len(before_matching) == 2
     assert len(after_matching) == 1
+
+
+def test_deterministic_unused_definition_deletes_literal_assignment(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_definition_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    unused_value = 123\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused definition: 'unused_value'",
+    )
+
+    edit = deterministic_unused_definition_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 2
+
+
+def test_deterministic_unused_definition_rejects_call_rhs(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_definition_edit,
+    )
+
+    source = (
+        "def side_effect():\n"
+        "    print('called')\n"
+        "    return 1\n"
+        "\n"
+        "def example():\n"
+        "    unused_value = side_effect()\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused definition: 'unused_value'",
+    )
+
+    assert (
+        deterministic_unused_definition_edit(
+            source,
+            diagnostic,
+        )
+        is None
+    )
+
+
+def test_deterministic_unused_definition_rejects_attribute_access_rhs(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_definition_edit,
+    )
+
+    source = (
+        "def example(obj):\n"
+        "    unused_value = obj.value\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused definition: 'unused_value'",
+    )
+
+    assert (
+        deterministic_unused_definition_edit(
+            source,
+            diagnostic,
+        )
+        is None
+    )
+
+
+def test_deterministic_unused_definition_rejects_unpacking(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_definition_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    first, second = (1, 2)\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused definition: 'first'",
+    )
+
+    assert (
+        deterministic_unused_definition_edit(
+            source,
+            diagnostic,
+        )
+        is None
+    )

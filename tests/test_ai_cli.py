@@ -785,3 +785,171 @@ def test_cli_duplicate_import_uses_deterministic_repair(
         "\n"
         "print(os.getcwd())\n"
     )
+
+
+def test_cli_unused_literal_uses_deterministic_repair(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def example():\n"
+        "    unused_value = 123\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    def forbidden_ai(*args, **kwargs):
+        raise AssertionError(
+            "Ollama evaluator must not be used "
+            "for safe unused definition"
+        )
+
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        assert kwargs.get("provider") is not None
+        return real_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        "codeguardian.ai.engine.request_ai_edit",
+        forbidden_ai,
+    )
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--max-repairs",
+            "1",
+        ],
+    )
+
+    result = cli.main()
+
+    assert result == 0
+    assert "unused_value = 123" not in path.read_text(
+        encoding="utf-8"
+    )
+
+    output = capsys.readouterr().out
+    assert "AI repairs applied: 1" in output
+
+
+def test_cli_unused_literals_rescan_and_share_repair_budget(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def example():\n"
+        "    first_unused = 1\n"
+        "    second_unused = 2\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    attempted_lines = []
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        assert kwargs.get("provider") is not None
+        attempted_lines.append(
+            kwargs["diagnostic"].line
+        )
+        return real_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+
+    assert result == 0
+    assert attempted_lines == [2, 2]
+
+    source = path.read_text(encoding="utf-8")
+    assert "first_unused" not in source
+    assert "second_unused" not in source
+
+    output = capsys.readouterr().out
+    assert "AI repairs applied: 2" in output
+
+
+def test_cli_unused_literal_respects_max_repairs(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def example():\n"
+        "    first_unused = 1\n"
+        "    second_unused = 2\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--max-repairs",
+            "1",
+        ],
+    )
+
+    result = cli.main()
+
+    assert result == 0
+
+    source = path.read_text(encoding="utf-8")
+
+    remaining = sum(
+        name in source
+        for name in (
+            "first_unused",
+            "second_unused",
+        )
+    )
+
+    assert remaining == 1
+
+    output = capsys.readouterr().out
+    assert "AI repairs applied: 1" in output
+    assert "Unused definition:" in output

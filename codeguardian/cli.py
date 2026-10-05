@@ -8,6 +8,7 @@ from .analyzer import analyze_file
 from .ai.engine import (
     apply_evaluated_ai_edit,
     deterministic_duplicate_import_edit,
+    deterministic_unused_definition_edit,
     evaluate_ai_edit,
     evaluate_ai_edits,
 )
@@ -313,6 +314,14 @@ def main() -> int:
                             diagnostic,
                         )
                     )
+
+                    if deterministic_edit is None:
+                        deterministic_edit = (
+                            deterministic_unused_definition_edit(
+                                source,
+                                diagnostic,
+                            )
+                        )
 
                     if deterministic_edit is not None:
                         evaluation = evaluate_ai_edit(
