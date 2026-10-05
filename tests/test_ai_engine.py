@@ -1145,3 +1145,132 @@ def test_duplicate_import_repair_rejects_identical_import_in_other_branch(
         source,
         diagnostic,
     ) is None
+
+
+def test_unused_definition_repair_rejects_division_that_can_raise(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_definition_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    unused = 1 / 0\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused definition: 'unused'",
+    )
+
+    assert deterministic_unused_definition_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_unused_definition_repair_rejects_set_literal(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_definition_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    unused = {1, 2}\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused definition: 'unused'",
+    )
+
+    assert deterministic_unused_definition_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_unused_definition_repair_rejects_dict_literal(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_definition_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    unused = {'key': 'value'}\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused definition: 'unused'",
+    )
+
+    assert deterministic_unused_definition_edit(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_unused_definition_repair_accepts_nested_literal_sequence(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_definition_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    unused = [1, ('safe', None), [True, 3.5]]\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused definition: 'unused'",
+    )
+
+    edit = deterministic_unused_definition_edit(
+        source,
+        diagnostic,
+    )
+
+    assert edit is not None
+    assert edit.operation == "delete"
+    assert edit.line == 2
+
+
+def test_unused_definition_repair_rejects_sequence_with_expression(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_unused_definition_edit,
+    )
+
+    source = (
+        "def example():\n"
+        "    unused = [1, 2 / 0]\n"
+        "    return 1\n"
+    )
+
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Unused definition: 'unused'",
+    )
+
+    assert deterministic_unused_definition_edit(
+        source,
+        diagnostic,
+    ) is None

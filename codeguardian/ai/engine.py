@@ -488,74 +488,20 @@ def deterministic_unused_import_edit(
         line=diagnostic.line,
     )
 
-def _side_effect_free_expression(node: ast.AST) -> bool:
-    """Return True only for expressions safe to discard completely."""
+def _side_effect_free_expression(
+    node: ast.AST,
+) -> bool:
+    """Return whether deleting this expression is conservatively safe."""
     if isinstance(node, ast.Constant):
         return True
 
-    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+    if isinstance(node, (ast.Tuple, ast.List)):
         return all(
             _side_effect_free_expression(item)
             for item in node.elts
         )
 
-    if isinstance(node, ast.Dict):
-        return all(
-            key is not None
-            and _side_effect_free_expression(key)
-            and _side_effect_free_expression(value)
-            for key, value in zip(node.keys, node.values)
-        )
-
-    if isinstance(node, ast.UnaryOp):
-        return (
-            isinstance(
-                node.op,
-                (ast.UAdd, ast.USub, ast.Not, ast.Invert),
-            )
-            and _side_effect_free_expression(node.operand)
-        )
-
-    if isinstance(node, ast.BinOp):
-        return (
-            isinstance(
-                node.op,
-                (
-                    ast.Add,
-                    ast.Sub,
-                    ast.Mult,
-                    ast.Div,
-                    ast.FloorDiv,
-                    ast.Mod,
-                    ast.Pow,
-                    ast.LShift,
-                    ast.RShift,
-                    ast.BitOr,
-                    ast.BitXor,
-                    ast.BitAnd,
-                ),
-            )
-            and _side_effect_free_expression(node.left)
-            and _side_effect_free_expression(node.right)
-        )
-
-    if isinstance(node, ast.BoolOp):
-        return all(
-            _side_effect_free_expression(value)
-            for value in node.values
-        )
-
-    if isinstance(node, ast.Compare):
-        return (
-            _side_effect_free_expression(node.left)
-            and all(
-                _side_effect_free_expression(item)
-                for item in node.comparators
-            )
-        )
-
     return False
-
 
 def deterministic_unused_definition_edit(
     source: str,
