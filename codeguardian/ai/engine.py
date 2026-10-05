@@ -658,11 +658,65 @@ def deterministic_mutable_default_edits(
         + stripped[end:]
     )
 
-    indentation = header[:leading] + "    "
+    if not function.body:
+        return None
+
+    first_statement = function.body[0]
+    first_line_number = first_statement.lineno
+
+    if not (
+        1 <= first_line_number <= len(lines)
+    ):
+        return None
+
+    first_line = lines[first_line_number - 1]
+    body_indentation = first_line[
+        : len(first_line) - len(first_line.lstrip())
+    ]
+    function_indentation = header[:leading]
+
+    if not body_indentation.startswith(
+        function_indentation
+    ):
+        return None
+
+    indent_unit = body_indentation[
+        len(function_indentation):
+    ]
+
+    if not indent_unit or not indent_unit.isspace():
+        return None
+
+    insert_after_line = function.lineno
+
+    is_docstring = (
+        isinstance(first_statement, ast.Expr)
+        and isinstance(
+            first_statement.value,
+            ast.Constant,
+        )
+        and isinstance(
+            first_statement.value.value,
+            str,
+        )
+    )
+
+    if is_docstring:
+        docstring_end = getattr(
+            first_statement,
+            "end_lineno",
+            first_statement.lineno,
+        )
+
+        if docstring_end != first_statement.lineno:
+            return None
+
+        insert_after_line = docstring_end
 
     initializer = (
-        f"{indentation}if {name} is None:\n"
-        f"{indentation}    {name} = {factory}"
+        f"{body_indentation}if {name} is None:\n"
+        f"{body_indentation}{indent_unit}"
+        f"{name} = {factory}"
     )
 
     return [
@@ -676,7 +730,7 @@ def deterministic_mutable_default_edits(
         ),
         AIEdit(
             operation="insert_after",
-            line=function.lineno,
+            line=insert_after_line,
             content=initializer,
         ),
     ]

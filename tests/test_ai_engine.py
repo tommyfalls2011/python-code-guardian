@@ -1720,3 +1720,163 @@ def test_deterministic_assert_tuple_rejects_multiline(
         source,
         diagnostic,
     ) is None
+
+
+def test_deterministic_mutable_default_preserves_docstring(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(items=[]):\n"
+        '    """Return collected items."""\n'
+        "    return items\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    edits = deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    )
+
+    assert edits is not None
+    assert len(edits) == 2
+    assert edits[0].content == "def collect(items=None):"
+    assert edits[1].operation == "insert_after"
+    assert edits[1].line == 2
+    assert edits[1].content == (
+        "    if items is None:\n"
+        "        items = []"
+    )
+
+
+def test_deterministic_mutable_default_uses_actual_indentation(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(items=[]):\n"
+        "\treturn items\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    edits = deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    )
+
+    assert edits is not None
+    assert edits[1].content == (
+        "\tif items is None:\n"
+        "\t\titems = []"
+    )
+
+
+def test_deterministic_mutable_default_nested_indentation(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "class Collector:\n"
+        "  def collect(items=[]):\n"
+        "    return items\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    edits = deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    )
+
+    assert edits is not None
+    assert edits[0].content == (
+        "  def collect(items=None):"
+    )
+    assert edits[1].content == (
+        "    if items is None:\n"
+        "      items = []"
+    )
+
+
+def test_deterministic_mutable_default_rejects_multiline_docstring(
+    tmp_path,
+):
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(items=[]):\n"
+        '    """Return\n'
+        "    collected items.\n"
+        '    """\n'
+        "    return items\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    assert deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    ) is None
+
+
+def test_deterministic_mutable_default_docstring_semantics(
+    tmp_path,
+):
+    from codeguardian.ai.edit import apply_ai_edits
+    from codeguardian.ai.engine import (
+        deterministic_mutable_default_edits,
+    )
+
+    source = (
+        "def collect(items=[]):\n"
+        '    """Return collected items."""\n'
+        "    return items\n"
+    )
+    diagnostic = diagnostic_for(
+        tmp_path,
+        source,
+        "Mutable default argument",
+    )
+
+    edits = deterministic_mutable_default_edits(
+        source,
+        diagnostic,
+    )
+
+    assert edits is not None
+
+    repaired = apply_ai_edits(source, edits)
+
+    namespace = {}
+    exec(repaired, namespace)
+
+    collect = namespace["collect"]
+
+    assert collect.__doc__ == "Return collected items."
+    assert collect() == []
+    assert collect() is not collect()
