@@ -26,6 +26,7 @@ class PythonAnalyzer(ast.NodeVisitor):
         self.diagnostics: list[Diagnostic] = []
         self.imports: dict[str, int] = {}
         self.defined_names: set[str] = set()
+        self.loop_depth = 0
 
     def diagnostic(
         self,
@@ -145,7 +146,11 @@ class PythonAnalyzer(ast.NodeVisitor):
     def visit_For(self, node: ast.For) -> None:
         self._check_unreachable_statements(node.body)
         self._check_unreachable_statements(node.orelse)
-        self.generic_visit(node)
+        self.loop_depth += 1
+        try:
+            self.generic_visit(node)
+        finally:
+            self.loop_depth -= 1
 
     def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
         self.visit_For(node)
@@ -224,6 +229,30 @@ class PythonAnalyzer(ast.NodeVisitor):
 
         self._check_unreachable_statements(node.body)
         self._check_unreachable_statements(node.orelse)
+        self.loop_depth += 1
+        try:
+            self.generic_visit(node)
+        finally:
+            self.loop_depth -= 1
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if (
+            self.loop_depth > 0
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "compile"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "re"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, (str, bytes))
+        ):
+            self.diagnostic(
+                node,
+                "INFO",
+                "Constant re.compile() inside a loop; "
+                "consider compiling the pattern once outside the loop.",
+            )
+
         self.generic_visit(node)
 
     def visit_Try(self, node: ast.Try) -> None:

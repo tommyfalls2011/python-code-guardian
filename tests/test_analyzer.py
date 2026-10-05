@@ -658,3 +658,53 @@ def test_detects_unreachable_code_after_continue(tmp_path):
     path.write_text("for value in range(3):\n    continue\n    print(value)\n", encoding="utf-8")
     result = analyze_file(path)
     assert any("Unreachable code" in d.message and d.line == 3 for d in result.diagnostics)
+
+
+
+def test_detects_constant_regex_compile_inside_loop(tmp_path):
+    path = tmp_path / "regex_loop.py"
+    path.write_text(
+        "import re\n"
+        "for value in range(3):\n"
+        " pattern = re.compile(r'\\d+')\n"
+        " print(pattern.match(str(value)))\n",
+        encoding="utf-8",
+    )
+    result = analyze_file(path)
+    assert any(
+        "re.compile() inside a loop" in d.message
+        for d in result.diagnostics
+    )
+
+
+def test_does_not_flag_constant_regex_compile_outside_loop(tmp_path):
+    path = tmp_path / "regex_outside.py"
+    path.write_text(
+        "import re\n"
+        "pattern = re.compile(r'\\d+')\n"
+        "for value in range(3):\n"
+        " print(pattern.match(str(value)))\n",
+        encoding="utf-8",
+    )
+    result = analyze_file(path)
+    assert not any(
+        "re.compile() inside a loop" in d.message
+        for d in result.diagnostics
+    )
+
+
+def test_does_not_flag_dynamic_regex_pattern_in_loop(tmp_path):
+    path = tmp_path / "dynamic_regex.py"
+    path.write_text(
+        "import re\n"
+        "def process(pattern_text, items):\n"
+        " token = re.compile(pattern_text)\n"
+        " for item in items:\n"
+        "  print(token.match(item))\n",
+        encoding="utf-8",
+    )
+    result = analyze_file(path)
+    assert not any(
+        "re.compile() inside a loop" in d.message
+        for d in result.diagnostics
+    )
