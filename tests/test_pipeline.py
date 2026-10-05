@@ -494,3 +494,93 @@ def test_plain_repair_shared_dispatcher_does_not_call_ai(
     assert "import os\nimport os" not in path.read_text(
         encoding="utf-8"
     )
+
+
+def test_plain_repair_shared_dispatcher_assert_tuple(tmp_path):
+    from codeguardian.pipeline import GuardianPipeline
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "value = True\nassert (value, \"must be true\")\n",
+        encoding="utf-8",
+    )
+
+    result = GuardianPipeline(create_backups=False).repair(path)
+
+    assert result.repairs_applied == 1
+    assert path.read_text(encoding="utf-8") == (
+        "value = True\nassert value, \"must be true\"\n"
+    )
+
+
+def test_plain_repair_shared_dispatcher_unreachable(tmp_path):
+    from codeguardian.pipeline import GuardianPipeline
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def run():\n"
+        "    return 1\n"
+        "    print(\"unreachable\")\n",
+        encoding="utf-8",
+    )
+
+    result = GuardianPipeline(create_backups=False).repair(path)
+
+    assert result.repairs_applied == 1
+    assert "unreachable" not in path.read_text(encoding="utf-8")
+
+
+def test_plain_repair_shared_dispatcher_unused_definition(tmp_path):
+    from codeguardian.pipeline import GuardianPipeline
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def run():\n"
+        "    unused = 123\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    result = GuardianPipeline(create_backups=False).repair(path)
+
+    assert result.repairs_applied == 1
+    assert "unused = 123" not in path.read_text(encoding="utf-8")
+
+
+def test_plain_repair_shared_dispatcher_duplicate_definition(tmp_path):
+    from codeguardian.pipeline import GuardianPipeline
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def run():\n"
+        "    return 1\n"
+        "\n"
+        "def run():\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    result = GuardianPipeline(create_backups=False).repair(path)
+
+    assert result.repairs_applied == 1
+    assert path.read_text(encoding="utf-8").count("def run():") == 1
+
+
+def test_plain_repair_shared_dispatcher_mutable_default(tmp_path):
+    from codeguardian.pipeline import GuardianPipeline
+
+    path = tmp_path / "example.py"
+    path.write_text(
+        "def collect(items=[]):\n"
+        "    return items\n",
+        encoding="utf-8",
+    )
+
+    result = GuardianPipeline(create_backups=False).repair(path)
+
+    repaired = path.read_text(encoding="utf-8")
+    assert result.repairs_applied == 1
+    assert "items=None" in repaired
+    assert "if items is None:" in repaired
+    assert "items = []" in repaired
+    compile(repaired, str(path), "exec")
