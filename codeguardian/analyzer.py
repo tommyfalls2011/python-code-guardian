@@ -25,7 +25,7 @@ class PythonAnalyzer(ast.NodeVisitor):
         self.path = path
         self.diagnostics: list[Diagnostic] = []
         self.imports: dict[str, int] = {}
-        self.defined_names: set[str] = set()
+        self.definition_scopes: list[set[str]] = [set()]
         self.loop_depth = 0
 
     def diagnostic(
@@ -57,7 +57,7 @@ class PythonAnalyzer(ast.NodeVisitor):
             else:
                 self.imports[name] = node.lineno
 
-            self.defined_names.add(name)
+            self.definition_scopes[-1].add(name)
 
         self.generic_visit(node)
 
@@ -82,24 +82,28 @@ class PythonAnalyzer(ast.NodeVisitor):
             else:
                 self.imports[name] = node.lineno
 
-            self.defined_names.add(name)
+            self.definition_scopes[-1].add(name)
 
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        if node.name in self.defined_names:
+        if node.name in self.definition_scopes[-1]:
             self.diagnostic(
                 node,
                 "WARNING",
                 f"Name '{node.name}' is defined more than once.",
             )
 
-        self.defined_names.add(node.name)
-        self.generic_visit(node)
+        self.definition_scopes[-1].add(node.name)
+        self.definition_scopes.append(set())
+        try:
+            self.generic_visit(node)
+        finally:
+            self.definition_scopes.pop()
 
     def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, ast.Store):
-            self.defined_names.add(node.id)
+            self.definition_scopes[-1].add(node.id)
 
         self.generic_visit(node)
 
@@ -161,17 +165,21 @@ class PythonAnalyzer(ast.NodeVisitor):
                 )
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        if node.name in self.defined_names:
+        if node.name in self.definition_scopes[-1]:
             self.diagnostic(
                 node,
                 "WARNING",
                 f"Name '{node.name}' is defined more than once.",
             )
 
-        self.defined_names.add(node.name)
+        self.definition_scopes[-1].add(node.name)
         self._check_mutable_defaults(node)
         self._check_unreachable_statements(node.body)
-        self.generic_visit(node)
+        self.definition_scopes.append(set())
+        try:
+            self.generic_visit(node)
+        finally:
+            self.definition_scopes.pop()
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self.visit_FunctionDef(node)

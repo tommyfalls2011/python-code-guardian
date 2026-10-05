@@ -818,3 +818,39 @@ def test_does_not_flag_normal_assert(tmp_path):
     path.write_text("def check(value):\n    assert value > 0, \"must be positive\"\n", encoding="utf-8")
     result = analyze_file(path)
     assert not any("always truthy" in d.message for d in result.diagnostics)
+
+
+def test_same_method_name_in_different_classes_is_not_duplicate(tmp_path):
+    path = tmp_path / "separate_classes.py"
+    path.write_text(
+        "class First:\n"
+        "    def run(self):\n"
+        "        return 1\n"
+        "\n"
+        "class Second:\n"
+        "    def run(self):\n"
+        "        return 2\n",
+        encoding="utf-8",
+    )
+    result = analyze_file(path)
+    assert not any(
+        "Name 'run' is defined more than once." in d.message
+        for d in result.diagnostics
+    )
+
+
+def test_real_duplicate_function_still_detected(tmp_path):
+    path = tmp_path / "real_duplicate.py"
+    path.write_text(
+        "def run():\n"
+        "    return 1\n"
+        "\n"
+        "def run():\n"
+        "    return 2\n",
+        encoding="utf-8",
+    )
+    result = analyze_file(path)
+    assert any(
+        "Name 'run' is defined more than once." in d.message
+        for d in result.diagnostics
+    )
