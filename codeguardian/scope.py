@@ -54,10 +54,22 @@ class ScopeAnalyzer(ast.NodeVisitor):
         name: str,
         node: ast.AST | None = None,
     ) -> None:
-        self.current.defined.add(name)
+        target = self.current
+
+        if name in self.current.globals:
+            target = self.root
+        elif name in self.current.nonlocals:
+            parent = self.current.parent
+            while parent is not None:
+                if name in parent.defined:
+                    target = parent
+                    break
+                parent = parent.parent
+
+        target.defined.add(name)
 
         if node is not None:
-            self.current.definition_locations.setdefault(
+            target.definition_locations.setdefault(
                 name,
                 (
                     getattr(node, "lineno", 1),

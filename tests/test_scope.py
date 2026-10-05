@@ -502,3 +502,67 @@ values = (
     ).find_undefined_names(scope)
 
     assert undefined == []
+
+
+def test_global_assignment_is_not_local_definition(tmp_path):
+    path = write_python(
+        tmp_path,
+        """
+VALUE = 0
+
+def configure():
+    global VALUE
+    VALUE = 10
+
+def consume():
+    return VALUE
+""",
+    )
+
+    scope = analyze_scope(path)
+    configure = next(
+        child for child in scope.children
+        if child.name == "configure"
+    )
+
+    assert "VALUE" in configure.globals
+    assert "VALUE" not in configure.defined
+    assert "VALUE" in scope.defined
+    assert not any(
+        name == "VALUE"
+        for name, _, _ in find_unused_definitions(scope)
+    )
+
+
+def test_nonlocal_assignment_belongs_to_enclosing_scope(tmp_path):
+    path = write_python(
+        tmp_path,
+        """
+def outer():
+    count = 0
+
+    def increment():
+        nonlocal count
+        count = 1
+
+    return count
+""",
+    )
+
+    scope = analyze_scope(path)
+    outer = next(
+        child for child in scope.children
+        if child.name == "outer"
+    )
+    increment = next(
+        child for child in outer.children
+        if child.name == "increment"
+    )
+
+    assert "count" in increment.nonlocals
+    assert "count" not in increment.defined
+    assert "count" in outer.defined
+    assert not any(
+        name == "count"
+        for name, _, _ in find_unused_definitions(scope)
+    )
