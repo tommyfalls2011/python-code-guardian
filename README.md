@@ -1,6 +1,6 @@
 # Python Code Guardian
 
-Python Code Guardian is a deterministic Python syntax checking and repair tool.
+Python Code Guardian is a Python 3 static-analysis and guarded repair tool.
 
 It scans Python files, identifies supported syntax problems, proposes conservative repairs, validates candidates, and can apply changes with backup and rollback protection.
 
@@ -51,4 +51,4 @@ python -m pytest -q
 
 ## Development Status
 
-Python Code Guardian is under active development. The current focus is deterministic, validated, and regression-tested Python syntax repair.
+Python Code Guardian is under active development. Version 1.0.0 includes deterministic analysis and repair, guarded local-AI repair support, safe repair policies, validation, history, and audit reporting.

@@ -393,4 +393,4 @@ def test_cli_version(capsys):
         sys.argv = old_argv
 
     output = capsys.readouterr().out
-    assert "codeguardian 0.1.0" in output
+    assert "codeguardian 1.0.0" in output
