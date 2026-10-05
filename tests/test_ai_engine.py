@@ -2208,3 +2208,68 @@ def test_deterministic_duplicate_definition_rejects_different_decorator(
         )
         is None
     )
+
+
+def test_deterministic_repair_dispatcher_duplicate_import(tmp_path):
+    from codeguardian.ai.engine import deterministic_repair_edits
+    from codeguardian.analyzer import analyze_file
+
+    path = tmp_path / "sample.py"
+    source = "import os\nimport os\n"
+    path.write_text(source, encoding="utf-8")
+    diagnostic = next(
+        item
+        for item in analyze_file(path).diagnostics
+        if item.message == "Duplicate import: 'os'"
+    )
+
+    edits = deterministic_repair_edits(source, diagnostic)
+
+    assert edits is not None
+    assert len(edits) == 1
+    assert edits[0].operation == "delete"
+
+
+def test_deterministic_repair_dispatcher_bare_except(tmp_path):
+    from codeguardian.ai.engine import deterministic_repair_edits
+    from codeguardian.analyzer import analyze_file
+
+    path = tmp_path / "sample.py"
+    source = "try:\n    pass\nexcept:\n    pass\n"
+    path.write_text(source, encoding="utf-8")
+    diagnostic = next(
+        item
+        for item in analyze_file(path).diagnostics
+        if item.message.startswith("Bare except")
+    )
+
+    edits = deterministic_repair_edits(source, diagnostic)
+
+    assert edits is not None
+    assert len(edits) == 1
+    assert edits[0].operation == "replace"
+    assert edits[0].content == "except Exception:"
+
+
+def test_deterministic_repair_dispatcher_unknown_returns_none(tmp_path):
+    from codeguardian.ai.engine import deterministic_repair_edits
+    from codeguardian.analyzer import analyze_file
+
+    path = tmp_path / "sample.py"
+    source = "value = 1\n"
+    path.write_text(source, encoding="utf-8")
+    diagnostic = next(iter(analyze_file(path).diagnostics), None)
+
+    if diagnostic is None:
+        from codeguardian.scanner import Diagnostic
+        diagnostic = Diagnostic(
+            file=path,
+            line=1,
+            column=1,
+            severity="WARNING",
+            message="Unknown deterministic diagnostic",
+        )
+    else:
+        diagnostic.message = "Unknown deterministic diagnostic"
+
+    assert deterministic_repair_edits(source, diagnostic) is None

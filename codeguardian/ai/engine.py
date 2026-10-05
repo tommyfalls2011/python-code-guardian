@@ -1213,6 +1213,31 @@ def deterministic_bare_except_edit(
     )
 
 
+def deterministic_repair_edits(
+    source: str,
+    diagnostic: Diagnostic,
+) -> list[AIEdit] | None:
+    """Return the first bounded deterministic repair for one diagnostic."""
+    single_edit_helpers = (
+        deterministic_duplicate_import_edit,
+        deterministic_duplicate_definition_edit,
+        deterministic_unused_definition_edit,
+        deterministic_unreachable_code_edit,
+        deterministic_assert_tuple_edit,
+        deterministic_bare_except_edit,
+    )
+
+    for helper in single_edit_helpers:
+        edit = helper(source, diagnostic)
+        if edit is not None:
+            return [edit]
+
+    if diagnostic.message.startswith("Mutable default argument"):
+        return deterministic_mutable_default_edits(source, diagnostic)
+
+    return None
+
+
 def _analyze_source(source: str) -> list[Diagnostic]:
     with tempfile.TemporaryDirectory(
         prefix="codeguardian-ai-"
