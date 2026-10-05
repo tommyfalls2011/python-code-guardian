@@ -26,6 +26,52 @@ from .report import Report
 from .scanner import PythonScanner
 
 
+def _safe_ai_skip_reason(message: str) -> str | None:
+    """Explain why safe policy must not ask AI to rewrite a diagnostic."""
+    if message == (
+        "Code is guarded by 'if False' and will never execute."
+    ):
+        return (
+            "Automatic repair could expose intentionally "
+            "unreachable code."
+        )
+
+    if (
+        message.startswith("Name '")
+        and (
+            message.endswith(
+                "' is rebound by a function definition."
+            )
+            or message.endswith(
+                "' is rebound by a class definition."
+            )
+        )
+    ):
+        return (
+            "Automatic repair would require guessing which "
+            "binding the programmer intended."
+        )
+
+    if message == (
+        "Wildcard import makes static analysis less reliable."
+    ):
+        return (
+            "Automatic repair would require guessing which "
+            "imported names are intentionally exposed."
+        )
+
+    if (
+        message.startswith("Use of eval()")
+        or message.startswith("Use of exec()")
+    ):
+        return (
+            "Automatic repair would require redesigning "
+            "intentional dynamic execution."
+        )
+
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="codeguardian",
@@ -319,40 +365,6 @@ def main() -> int:
                 if rejection_key in rejected_attempts:
                     continue
 
-                if (
-                    args.policy == "safe"
-                    and diagnostic.message
-                    == (
-                        "Code is guarded by 'if False' "
-                        "and will never execute."
-                    )
-                ):
-                    safe_skip_key = (
-                        diagnostic.file,
-                        diagnostic.severity.upper(),
-                        diagnostic.message,
-                    )
-
-                    if safe_skip_key not in safe_skips_reported:
-                        print(
-                            f"[SKIPPED SAFE] {diagnostic.file}:"
-                            f"{diagnostic.line}:"
-                            f"{diagnostic.column}"
-                        )
-                        print(
-                            "    Automatic repair could expose "
-                            "intentionally unreachable code."
-                        )
-                        print()
-                        safe_skips_reported.add(
-                            safe_skip_key
-                        )
-
-                    rejected_attempts.add(
-                        rejection_key
-                    )
-                    continue
-
                 repair_source = "ai"
 
                 try:
@@ -440,6 +452,45 @@ def main() -> int:
                                 model=args.ai_model,
                             )
                     else:
+                        safe_skip_reason = None
+
+                        if args.policy == "safe":
+                            safe_skip_reason = (
+                                _safe_ai_skip_reason(
+                                    diagnostic.message
+                                )
+                            )
+
+                        if safe_skip_reason is not None:
+                            safe_skip_key = (
+                                diagnostic.file,
+                                diagnostic.severity.upper(),
+                                diagnostic.message,
+                            )
+
+                            if (
+                                safe_skip_key
+                                not in safe_skips_reported
+                            ):
+                                print(
+                                    f"[SKIPPED SAFE] "
+                                    f"{diagnostic.file}:"
+                                    f"{diagnostic.line}:"
+                                    f"{diagnostic.column}"
+                                )
+                                print(
+                                    f"    {safe_skip_reason}"
+                                )
+                                print()
+                                safe_skips_reported.add(
+                                    safe_skip_key
+                                )
+
+                            rejected_attempts.add(
+                                rejection_key
+                            )
+                            continue
+
                         evaluation = evaluate_ai_edit(
                             source=source,
                             diagnostic=diagnostic,

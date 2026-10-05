@@ -1432,3 +1432,241 @@ def test_cli_identical_duplicate_definition_is_deterministic(
     assert "Deterministic repairs applied: 1" in output
     assert "AI repairs applied: 0" in output
     assert "Total repairs applied: 1" in output
+
+
+
+def test_safe_ai_skip_reason_covers_intent_dependent_warnings():
+    from codeguardian.cli import _safe_ai_skip_reason
+
+    blocked = (
+        "Code is guarded by 'if False' and will never execute.",
+        "Name 'value' is rebound by a function definition.",
+        "Name 'Thing' is rebound by a class definition.",
+        "Wildcard import makes static analysis less reliable.",
+        "Use of eval() can execute arbitrary code; "
+        "avoid it unless the input is fully trusted.",
+        "Use of exec() can execute arbitrary code; "
+        "avoid it unless the input is fully trusted.",
+    )
+
+    for message in blocked:
+        assert _safe_ai_skip_reason(message) is not None
+
+    assert (
+        _safe_ai_skip_reason(
+            "Duplicate import: 'os'"
+        )
+        is None
+    )
+    assert (
+        _safe_ai_skip_reason(
+            "Name 'run' is defined more than once."
+        )
+        is None
+    )
+
+
+def test_cli_safe_mode_skips_function_rebinding_ai(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    original = (
+        "value = 1\n"
+        "\n"
+        "def value():\n"
+        "    return 2\n"
+    )
+    path = tmp_path / "rebind.py"
+    path.write_text(original, encoding="utf-8")
+
+    def forbidden_ai(*args, **kwargs):
+        raise AssertionError(
+            "AI must not rewrite name rebinding in safe mode"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert path.read_text(encoding="utf-8") == original
+    assert output.count("[SKIPPED SAFE]") == 1
+    assert "guessing which binding" in output
+    assert "AI repairs applied: 0" in output
+
+
+def test_cli_safe_mode_skips_wildcard_import_ai(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    original = "from example_module import *\n"
+    path = tmp_path / "wildcard.py"
+    path.write_text(original, encoding="utf-8")
+
+    def forbidden_ai(*args, **kwargs):
+        raise AssertionError(
+            "AI must not rewrite wildcard import in safe mode"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert path.read_text(encoding="utf-8") == original
+    assert output.count("[SKIPPED SAFE]") == 1
+    assert "imported names" in output
+    assert "AI repairs applied: 0" in output
+
+
+def test_cli_safe_mode_skips_eval_ai(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    original = (
+        "def run(text):\n"
+        "    return eval(text)\n"
+    )
+    path = tmp_path / "dynamic.py"
+    path.write_text(original, encoding="utf-8")
+
+    def forbidden_ai(*args, **kwargs):
+        raise AssertionError(
+            "AI must not rewrite eval in safe mode"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edits",
+        forbidden_ai,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert path.read_text(encoding="utf-8") == original
+    assert output.count("[SKIPPED SAFE]") == 1
+    assert "dynamic execution" in output
+    assert "AI repairs applied: 0" in output
+
+
+def test_safe_policy_still_repairs_identical_duplicate_definition(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    from codeguardian import cli
+
+    path = tmp_path / "duplicate.py"
+    path.write_text(
+        "def run():\n"
+        "    return 1\n"
+        "\n"
+        "def run():\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+
+    real_evaluate = cli.evaluate_ai_edit
+
+    def guarded_evaluate(*args, **kwargs):
+        assert kwargs.get("provider") is not None
+        return real_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(
+        cli,
+        "evaluate_ai_edit",
+        guarded_evaluate,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "codeguardian",
+            str(path),
+            "--ai-repair",
+            "--policy",
+            "safe",
+            "--max-repairs",
+            "2",
+        ],
+    )
+
+    result = cli.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    source = path.read_text(encoding="utf-8")
+    assert source.count("def run():") == 1
+    assert "Deterministic repairs applied: 1" in output
+    assert "[SKIPPED SAFE]" not in output
