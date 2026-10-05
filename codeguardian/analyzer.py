@@ -436,6 +436,40 @@ def analyze_file(path: Path) -> AnalysisResult:
 
     collect_used(scope)
 
+    exported_names: set[str] = set()
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+
+        if value is None:
+            continue
+
+        is_all_assignment = any(
+            isinstance(target, ast.Name)
+            and target.id == "__all__"
+            for target in targets
+        )
+
+        if not is_all_assignment:
+            continue
+
+        if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+            for element in value.elts:
+                if (
+                    isinstance(element, ast.Constant)
+                    and isinstance(element.value, str)
+                ):
+                    exported_names.add(element.value)
+
+    used_names.update(exported_names)
+
     for name, line in analyzer.imports.items():
         if name not in used_names:
             analyzer.diagnostics.append(

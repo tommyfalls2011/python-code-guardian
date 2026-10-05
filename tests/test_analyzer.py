@@ -905,3 +905,35 @@ def test_duplicate_import_in_same_function_is_detected(tmp_path):
         diagnostic.message == "Duplicate import: 'tokenize'"
         for diagnostic in result.diagnostics
     )
+
+
+def test_import_reexported_through_all_is_not_unused(tmp_path):
+    path = tmp_path / "exports.py"
+    path.write_text(
+        "from pathlib import Path\n"
+        "__all__ = [\"Path\"]\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert not any(
+        diagnostic.message == "Unused import: 'Path'"
+        for diagnostic in result.diagnostics
+    )
+
+
+def test_import_not_exported_through_all_is_still_unused(tmp_path):
+    path = tmp_path / "exports.py"
+    path.write_text(
+        "from pathlib import Path\n"
+        "__all__ = [\"something_else\"]\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_file(path)
+
+    assert any(
+        diagnostic.message == "Unused import: 'Path'"
+        for diagnostic in result.diagnostics
+    )
